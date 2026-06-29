@@ -41,17 +41,25 @@ def _get_file_path(code: str) -> str:
     return os.path.join(DATA_DIR, f"{code.replace('.', '_')}.csv")
 
 
-def _login_baostock() -> bool:
+def _login_baostock(max_retry: int = 5, base_sleep: float = 2.0) -> bool:
+    """带重试的 baostock 登录，处理 socket 残留问题。"""
     import baostock as bs
-    try:
-        bs.logout()
-    except Exception:
-        pass
-    lg = bs.login()
-    if lg.error_code == "0":
-        logger.info("baostock 登录成功")
-        return True
-    logger.error("baostock 登录失败：%s %s", lg.error_code, lg.error_msg)
+    for attempt in range(1, max_retry + 1):
+        try:
+            try:
+                bs.logout()
+            except Exception:
+                pass
+            time.sleep(0.5)
+            lg = bs.login()
+            if lg.error_code == "0":
+                logger.info("baostock 登录成功（第 %d 次）", attempt)
+                return True
+            logger.warning("baostock 登录失败（第 %d 次）：%s", attempt, lg.error_msg)
+        except Exception as e:
+            logger.warning("baostock 登录异常（第 %d 次）：%s", attempt, e)
+        if attempt < max_retry:
+            time.sleep(base_sleep * attempt)
     return False
 
 
@@ -61,6 +69,12 @@ def _logout_baostock():
         bs.logout()
     except Exception:
         pass
+
+
+def _is_connection_error(err_text: str) -> bool:
+    keywords = ["10054", "10038", "接收数据异常", "connection reset",
+                "forcibly closed", "网络接收错误", "socket", "no response"]
+    return any(k.lower() in err_text.lower() for k in keywords)
 
 
 def _get_last_trade_date(end_date: str) -> str:
@@ -214,6 +228,9 @@ def refresh_single_stock(stock_code: str, bus=None) -> dict:
 
             except Exception as e:
                 last_err = str(e)
+                if _is_connection_error(last_err):
+                    logger.info("检测到连接异常，尝试重登 baostock")
+                    _login_baostock(max_retry=3)
                 if attempt < RETRY_TIMES:
                     time.sleep(RETRY_SLEEP * attempt)
 
