@@ -69,10 +69,17 @@ def data_refresh_node(state: ResearchState, config: RunnableConfig) -> dict:
         return {"current_step": "data_refreshed"}
 
     try:
-        from tools.data_pipeline import refresh_single_stock
+        from tools.data_pipeline import refresh_single_stock, refresh_industry_stocks
+        # 1. 更新目标股票
         result = refresh_single_stock(stock_code, bus=bus)
         if not result["ok"]:
-            bus.emit_progress("system", "running", f"📡 数据更新失败：{result['message']}，使用本地缓存继续")
+            bus.emit_progress("system", "running", f"📡 目标股票更新失败：{result['message']}，使用本地缓存")
+
+        # 2. 更新目标行业所有股票（板块分析需要）
+        real_industry = state.get("real_industry") or state.get("industry") or ""
+        if real_industry:
+            refresh_industry_stocks(real_industry, bus=bus)
+
     except Exception as e:
         logger.warning("数据刷新异常（不影响分析）：%s", e)
         bus.emit_progress("system", "running", "📡 数据更新异常，使用本地缓存继续")

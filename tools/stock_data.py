@@ -353,6 +353,7 @@ def analyze_sector(industry_name: str, top_n: int = 5) -> str:
             results.append({
                 "code": code,
                 "name": name,
+                "data_date": latest["date"].strftime("%Y-%m-%d") if pd.notna(latest.get("date")) else "",
                 "close": latest.get("close", np.nan),
                 "pctChg": latest.get("pctChg", np.nan),
                 "turn": latest.get("turn", np.nan),
@@ -402,8 +403,18 @@ def analyze_sector(industry_name: str, top_n: int = 5) -> str:
         ["name", "code", "pctChg", "turn", "amount_yi", "ma_status", "amount_trend"]
     ]
 
+    # 数据日期标注
+    dates = [r.get("data_date", "") for r in results if r.get("data_date")]
+    if dates:
+        latest_date = max(dates)
+        oldest_date = min(dates)
+        date_note = f"数据日期：{latest_date}" if latest_date == oldest_date else f"数据日期：{oldest_date} ~ {latest_date}"
+    else:
+        date_note = "数据日期：未知"
+
     output_lines = [
-        f"=== 板块分析：{industry_name} ===\n",
+        f"=== 板块分析：{industry_name} ===",
+        f"⏰ {date_note}\n",
         f"板块股票总数：{total} 只",
         f"今日上涨：{up_count} 只 | 下跌：{down_count} 只 | 平盘：{total - up_count - down_count} 只",
         f"板块平均涨幅：{avg_pct:.2f}%",

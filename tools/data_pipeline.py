@@ -146,6 +146,11 @@ def refresh_single_stock(stock_code: str, bus=None) -> dict:
         bus.emit_progress("system", "done", f"📡 {msg}")
         return {"ok": True, "rows": len(new_df), "message": msg}
 
+    except ImportError:
+        logger.warning("未找到 data_downloader.py，跳过数据更新")
+        bus.emit_progress("system", "running", "📡 未找到数据下载脚本，使用本地缓存")
+        return {"ok": False, "rows": 0, "message": "data_downloader.py 未找到"}
+
     except Exception as e:
         try:
             logout_baostock()
@@ -154,6 +159,93 @@ def refresh_single_stock(stock_code: str, bus=None) -> dict:
         logger.error("单股数据更新失败：%s", e)
         bus.emit_progress("system", "running", f"📡 数据更新失败：{e}，使用本地缓存继续")
         return {"ok": False, "rows": 0, "message": str(e)}
+
+
+def refresh_industry_stocks(industry: str, bus=None) -> dict:
+    """更新某个行业的所有股票（板块分析前调用）。
+
+    一个行业约 50-100 只，逐只增量更新，约 1-3 分钟。
+    """
+    from core.event_bus import ConsoleEventBus
+    if bus is None:
+        bus = ConsoleEventBus()
+
+    if not os.path.exists(META_FILE):
+        return {"ok": False, "updated": 0, "total": 0, "message": "stock_meta.csv 不存在"}
+
+    meta_df = pd.read_csv(META_FILE)
+    sector_stocks = meta_df[meta_df["industry_name"] == industry]
+    total = len(sector_stocks)
+
+    if total == 0:
+        return {"ok": False, "updated": 0, "total": 0, "message": f"未找到行业 {industry}"}
+
+    bus.emit_progress("sector", "running", f"📡 正在更新 {industry} 行业数据（{total} 只）...")
+
+    try:
+        downloader_dir = os.path.dirname(DOWNLOADER_SCRIPT)
+        if downloader_dir not in sys.path:
+            sys.path.insert(0, downloader_dir)
+
+        from data_downloader import (
+            login_baostock, logout_baostock, fetch_k_data,
+            merge_and_save_csv, get_last_trade_date,
+        )
+
+        login_baostock()
+        today = datetime.now().strftime("%Y-%m-%d")
+        trade_date = get_last_trade_date(today)
+
+        updated = 0
+        skipped = 0
+        failed = 0
+
+        for _, row in sector_stocks.iterrows():
+            code = row["code"]
+            file_path = _get_file_path(code)
+            last_date = _get_local_last_date(file_path)
+
+            if last_date and last_date >= trade_date:
+                skipped += 1
+                continue
+
+            start_date = (pd.to_datetime(last_date) + timedelta(days=1)).strftime("%Y-%m-%d") if last_date else \
+                (datetime.now() - timedelta(days=180)).strftime("%Y-%m-%d")
+
+            if start_date > trade_date:
+                skipped += 1
+                continue
+
+            try:
+                # 统一代码格式
+                bs_code = code if "." in code else f"{'sh' if code[0] in '69' else 'sz'}.{code}"
+                new_df = fetch_k_data(bs_code, start_date, trade_date)
+                if not new_df.empty:
+                    os.makedirs(DATA_DIR, exist_ok=True)
+                    merge_and_save_csv(file_path, new_df)
+                    updated += 1
+                else:
+                    skipped += 1
+            except Exception as e:
+                failed += 1
+                if failed <= 3:
+                    logger.warning("行业股票更新失败 %s：%s", code, e)
+
+        logout_baostock()
+        msg = f"{industry} 更新完成：更新{updated} 跳过{skipped} 失败{failed}/{total}"
+        bus.emit_progress("sector", "running", f"📡 {msg}")
+        return {"ok": True, "updated": updated, "skipped": skipped, "failed": failed, "total": total, "message": msg}
+
+    except ImportError:
+        logger.warning("未找到 data_downloader.py，跳过行业数据更新")
+        return {"ok": False, "updated": 0, "total": total, "message": "data_downloader.py 未找到"}
+    except Exception as e:
+        try:
+            logout_baostock()
+        except Exception:
+            pass
+        logger.error("行业数据更新异常：%s", e)
+        return {"ok": False, "updated": 0, "total": total, "message": str(e)}
 
 
 def refresh_all_stocks(bus=None) -> dict:
