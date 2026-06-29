@@ -1,11 +1,13 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import logging
 from datetime import datetime
 from langchain_core.messages import HumanMessage, SystemMessage
 from config import get_llm
+from core.cost_tracker import CostTracker
 
-llm = get_llm(temperature=0.2)
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """你是一位资深基金经理，负责整合多位分析师的研究报告，做出最终投资判断。
 
@@ -50,6 +52,7 @@ def run_supervisor(
     sector_report:    str,
     memory_context:   str = "",
     last_advice:      str = "",
+    tracker:          CostTracker = None,
 ) -> str:
     today = datetime.now().strftime("%Y年%m月%d日")
 
@@ -75,21 +78,18 @@ def run_supervisor(
 {sector_report}
 {history_block}
 """
+    llm = get_llm(temperature=0.2)
     messages = [
         SystemMessage(content=SYSTEM_PROMPT.format(stock_name=stock_name)),
         HumanMessage(content=user_content),
     ]
     response = llm.invoke(messages)
+
+    if tracker:
+        usage = getattr(response, "usage_metadata", None) or {}
+        tracker.record_llm_call(
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+        )
+
     return response.content
-
-
-if __name__ == "__main__":
-    result = run_supervisor(
-        stock_name="有研新材",
-        technical_report="技术面：均线多头，换手率8%。",
-        news_report="新闻面：情感评分0.6。",
-        sector_report="板块强度75分，资金流入。",
-        memory_context="上次分析（2026-06-01）：建议观望，风险高。",
-        last_advice="观望",
-    )
-    print(result)

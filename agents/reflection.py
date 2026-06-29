@@ -2,11 +2,13 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import re
+import logging
 from datetime import datetime
 from langchain_core.messages import HumanMessage, SystemMessage
 from config import get_llm
+from core.cost_tracker import CostTracker
 
-llm = get_llm(temperature=0.2)
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """你是一位专业的投研复盘分析师，负责对过去的投资预测进行客观评估。
 
@@ -58,28 +60,13 @@ def run_reflection(
     current_price:   dict,
     current_report:  str,
     history_records: list,
+    tracker:         CostTracker = None,
 ) -> str:
-    """
-    运行复盘引擎
-
-    Args:
-        stock_name:      股票名称
-        last_advice:     上次建议（买入/观望/回避）
-        last_date:       上次分析日期
-        last_price_info: 上次价格信息字符串
-        current_price:   本次实时价格 dict
-        current_report:  本次综合报告
-        history_records: 所有历史记录列表
-    """
     if not last_advice or not last_date:
         return ""
 
-    # 计算价格变化
     price_change_text = _calc_price_change(last_price_info, current_price)
-
-    # 计算历史准确率
     accuracy_text = _calc_accuracy(history_records)
-
     today = datetime.now().strftime("%Y年%m月%d日")
 
     user_content = f"""
@@ -105,23 +92,30 @@ def run_reflection(
 请按格式输出复盘报告。
 """
 
+    llm = get_llm(temperature=0.2)
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
         HumanMessage(content=user_content),
     ]
 
-    print(f"[Reflection] 开始复盘分析：{stock_name}")
+    logger.info("开始复盘分析：%s", stock_name)
     response = llm.invoke(messages)
-    print(f"[Reflection] 复盘完成")
+
+    if tracker:
+        usage = getattr(response, "usage_metadata", None) or {}
+        tracker.record_llm_call(
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+        )
+
+    logger.info("复盘完成：%s", stock_name)
     return response.content
 
 
 def _calc_price_change(last_price_info: str, current_price: dict) -> str:
-    """计算上次到现在的价格变化"""
     if not last_price_info or current_price["source"] == "unavailable":
         return "价格数据不可用，无法计算涨跌幅"
 
-    # 从上次价格信息里提取数字
     match = re.search(r'([\d.]+)\s*元', last_price_info)
     if not match:
         return f"当前价格：{current_price['price']:.2f}元（无法提取上次价格进行对比）"
@@ -144,13 +138,12 @@ def _calc_price_change(last_price_info: str, current_price: dict) -> str:
 
 
 def _calc_accuracy(history_records: list) -> str:
-    """统计历史预测准确率"""
     if len(history_records) < 2:
         return "历史记录不足，暂无统计数据"
 
-    total  = len(history_records) - 1  # 排除最新这条
+    total  = len(history_records) - 1
     lines  = [f"共有 {total} 次历史预测记录："]
-    for r in history_records[1:]:      # 跳过最新记录
+    for r in history_records[1:]:
         lines.append(f"- {r['date']}：{r['advice']}  风险:{r['risk_level']}")
     return "\n".join(lines)
 
@@ -160,7 +153,6 @@ def save_reflection_to_memory(
     reflection_text:  str,
     was_correct:      bool,
 ) -> None:
-    """把复盘结论存回 Memory"""
     try:
         from memory.vector_store import _get_collection
         col = _get_collection("reflections")
@@ -177,13 +169,12 @@ def save_reflection_to_memory(
             }],
             ids=[doc_id]
         )
-        print(f"[Reflection] 复盘结论已存入 Memory")
+        logger.info("复盘结论已存入 Memory")
     except Exception as e:
-        print(f"[Reflection] 存储失败：{e}")
+        logger.error("复盘存储失败：%s", e)
 
 
 def get_reflection_history(stock_name: str) -> str:
-    """查询该股票的历史复盘记录"""
     try:
         from memory.vector_store import _get_collection
         col = _get_collection("reflections")
@@ -197,7 +188,6 @@ def get_reflection_history(stock_name: str) -> str:
         )
         if not results["ids"][0]:
             return ""
-        # 返回最近一次复盘摘要
         docs = results["documents"][0]
         metas = results["metadatas"][0]
         lines = ["## 📋 历史复盘记录\n"]
@@ -207,22 +197,5 @@ def get_reflection_history(stock_name: str) -> str:
             lines.append("")
         return "\n".join(lines)
     except Exception as e:
-        print(f"[Reflection] 查询历史复盘失败：{e}")
+        logger.error("查询历史复盘失败：%s", e)
         return ""
-
-
-if __name__ == "__main__":
-    print("=== Reflection Engine 测试 ===\n")
-    result = run_reflection(
-        stock_name      = "有研新材",
-        last_advice     = "观望",
-        last_date       = "2026-06-01",
-        last_price_info = "收盘价约 18.20 元 (+2.30%) [实时 · 2026-06-01]",
-        current_price   = {"price": 22.50, "change_pct": 1.2,
-                           "date": "2026-06-27", "source": "realtime", "error": ""},
-        current_report  = "本次综合评级3星，建议观望，风险中等。",
-        history_records = [
-            {"date": "2026-06-01", "advice": "观望", "risk_level": "高"},
-        ],
-    )
-    print(result)

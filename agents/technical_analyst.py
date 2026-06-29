@@ -1,13 +1,14 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from langchain_core.messages import HumanMessage, SystemMessage
+import logging
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from config import get_llm
 from tools.stock_data import run_stock_screener, get_stock_detail
+from core.event_bus import ConsoleEventBus
+from core.cost_tracker import CostTracker
 
-# 绑定工具
-llm = get_llm(temperature=0.1)
-llm_with_tools = llm.bind_tools([run_stock_screener, get_stock_detail])
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """你是一位专业的股票技术分析师。
 你有以下工具可以使用：
@@ -26,35 +27,48 @@ SYSTEM_PROMPT = """你是一位专业的股票技术分析师。
 - 每只股票给出技术面理由
 """
 
+TOOL_MAP = {
+    "run_stock_screener": run_stock_screener,
+    "get_stock_detail": get_stock_detail,
+}
 
-def run_technical_analyst(user_query: str) -> str:
-    """运行技术分析师Agent，返回技术分析报告"""
+
+def run_technical_analyst(user_query: str, bus=None, tracker: CostTracker = None) -> str:
+    if bus is None:
+        bus = ConsoleEventBus()
+
+    llm = get_llm(temperature=0.1)
+    llm_with_tools = llm.bind_tools([run_stock_screener, get_stock_detail])
 
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
         HumanMessage(content=user_query),
     ]
 
-    # 最多循环5轮，直到LLM不再调用工具为止
     for _ in range(5):
         response = llm_with_tools.invoke(messages)
         messages.append(response)
 
-        # 没有工具调用，说明LLM已经生成最终回答
+        if tracker:
+            usage = getattr(response, "usage_metadata", None) or {}
+            tracker.record_llm_call(
+                input_tokens=usage.get("input_tokens", 0),
+                output_tokens=usage.get("output_tokens", 0),
+            )
+
         if not response.tool_calls:
             return response.content
 
-        # 有工具调用，执行工具并把结果加入消息
-        from langchain_core.messages import ToolMessage
         for tool_call in response.tool_calls:
             tool_name = tool_call["name"]
             tool_args = tool_call["args"]
-            print(f"[Technical Analyst] 调用工具: {tool_name}，参数: {tool_args}")
+            bus.emit_tool_call("technical", f"🔧 调用工具: {tool_name}，参数: {tool_args}")
 
-            if tool_name == "run_stock_screener":
-                result = run_stock_screener.invoke(tool_args)
-            elif tool_name == "get_stock_detail":
-                result = get_stock_detail.invoke(tool_args)
+            tool_fn = TOOL_MAP.get(tool_name)
+            if tool_fn:
+                result = tool_fn.invoke(tool_args)
+                if tracker:
+                    tracker.record_tool_call()
             else:
                 result = f"未知工具: {tool_name}"
 
@@ -64,13 +78,3 @@ def run_technical_analyst(user_query: str) -> str:
             ))
 
     return "分析超过最大轮次，请重试。"
-
-    # 第二轮：LLM根据工具结果生成最终分析
-    final_response = llm_with_tools.invoke(messages)
-    return final_response.content
-
-
-if __name__ == "__main__":
-    print("=== 技术分析师 Agent 测试 ===\n")
-    result = run_technical_analyst("请分析今日市场技术面，给出值得关注的股票。")
-    print(result)

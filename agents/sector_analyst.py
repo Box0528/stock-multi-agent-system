@@ -1,14 +1,21 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import logging
 from datetime import datetime
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from config import get_llm
 from tools.stock_data import analyze_sector
 from tools.search import search_stock_news
+from core.event_bus import ConsoleEventBus
+from core.cost_tracker import CostTracker
 
-llm = get_llm(temperature=0.1)
-llm_with_tools = llm.bind_tools([analyze_sector, search_stock_news])
+logger = logging.getLogger(__name__)
+
+TOOL_MAP = {
+    "analyze_sector": analyze_sector,
+    "search_stock_news": search_stock_news,
+}
 
 
 def get_system_prompt() -> str:
@@ -50,12 +57,16 @@ def get_system_prompt() -> str:
 """
 
 
-def run_sector_analyst(industry_name: str, stock_name: str = "") -> str:
-    """运行板块分析师Agent"""
+def run_sector_analyst(industry_name: str, stock_name: str = "", bus=None, tracker: CostTracker = None) -> str:
+    if bus is None:
+        bus = ConsoleEventBus()
 
     query = f"请分析【{industry_name}】板块的整体强弱和资金流向"
     if stock_name:
         query += f"，重点关注{stock_name}所在板块的机会"
+
+    llm = get_llm(temperature=0.1)
+    llm_with_tools = llm.bind_tools([analyze_sector, search_stock_news])
 
     messages = [
         SystemMessage(content=get_system_prompt()),
@@ -66,18 +77,28 @@ def run_sector_analyst(industry_name: str, stock_name: str = "") -> str:
         response = llm_with_tools.invoke(messages)
         messages.append(response)
 
+        if tracker:
+            usage = getattr(response, "usage_metadata", None) or {}
+            tracker.record_llm_call(
+                input_tokens=usage.get("input_tokens", 0),
+                output_tokens=usage.get("output_tokens", 0),
+            )
+
         if not response.tool_calls:
             return response.content
 
         for tool_call in response.tool_calls:
             tool_name = tool_call["name"]
             tool_args = tool_call["args"]
-            print(f"[Sector Analyst] 调用（{tool_name}）：{tool_args}")
+            bus.emit_tool_call("sector", f"🔧 调用（{tool_name}）：{tool_args}")
 
-            if tool_name == "analyze_sector":
-                result = analyze_sector.invoke(tool_args)
-            elif tool_name == "search_stock_news":
-                result = search_stock_news.invoke(tool_args)
+            tool_fn = TOOL_MAP.get(tool_name)
+            if tool_fn:
+                result = tool_fn.invoke(tool_args)
+                if tracker:
+                    tracker.record_tool_call()
+                    if tool_name == "search_stock_news":
+                        tracker.record_search_call()
             else:
                 result = f"未知工具: {tool_name}"
 
@@ -87,12 +108,3 @@ def run_sector_analyst(industry_name: str, stock_name: str = "") -> str:
             ))
 
     return "分析超过最大轮次，请重试。"
-
-
-if __name__ == "__main__":
-    print("=== 板块分析师 Agent 测试 ===\n")
-    result = run_sector_analyst(
-        industry_name="计算机、通信和其他电子设备制造业",
-        stock_name="有研新材"
-    )
-    print(result)

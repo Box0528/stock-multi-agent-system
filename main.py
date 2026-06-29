@@ -1,9 +1,14 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import logging
 import pandas as pd
 from langchain_core.messages import HumanMessage
 from graph.workflow import workflow
+from core.event_bus import ConsoleEventBus
+from core.cost_tracker import CostTracker
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 
 
 def lookup_industry(stock_name: str) -> str:
@@ -26,10 +31,13 @@ def run_research(stock_name: str, industry: str = "") -> str:
     print(f"  真实行业：{real_industry or '未找到'}")
     print(f"{'='*60}\n")
 
+    bus = ConsoleEventBus()
+    tracker = CostTracker()
+
     initial_state = {
         "messages":         [HumanMessage(content=f"请分析【{stock_name}】")],
         "stock_name":       stock_name,
-        "stock_code":       "",   # 命令行模式不强制传代码
+        "stock_code":       "",
         "industry":         industry,
         "real_industry":    real_industry,
         "task_plan":        "",
@@ -44,7 +52,19 @@ def run_research(stock_name: str, industry: str = "") -> str:
         "last_advice":      "",
     }
 
-    final_state = workflow.invoke(initial_state)
+    config = {"configurable": {"event_bus": bus, "cost_tracker": tracker}}
+    final_state = workflow.invoke(initial_state, config=config)
+
+    # 打印成本统计
+    cost = tracker.snapshot()
+    print(f"\n{'='*60}")
+    print(f"  成本统计")
+    print(f"  LLM 调用：{cost.llm_calls} 次")
+    print(f"  Token 消耗：{cost.total_tokens}（输入 {cost.total_input_tokens} / 输出 {cost.total_output_tokens}）")
+    print(f"  搜索 API：{cost.search_api_calls} 次")
+    print(f"  工具调用：{cost.tool_calls} 次")
+    print(f"{'='*60}\n")
+
     return final_state["final_report"]
 
 

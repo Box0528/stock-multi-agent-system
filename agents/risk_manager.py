@@ -1,10 +1,12 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import logging
 from langchain_core.messages import HumanMessage, SystemMessage
 from config import get_llm
+from core.cost_tracker import CostTracker
 
-llm = get_llm(temperature=0.1)
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """你是一位严格的风控经理，负责对投资建议进行最终风险审核。
 
@@ -47,6 +49,7 @@ def run_risk_manager(
     supervisor_summary: str,
     technical_report: str,
     risk_history:     str = "",
+    tracker:          CostTracker = None,
 ) -> str:
     history_block = ""
     if risk_history:
@@ -64,19 +67,18 @@ def run_risk_manager(
 {technical_report[:1000]}
 {history_block}
 """
+    llm = get_llm(temperature=0.1)
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
         HumanMessage(content=user_content),
     ]
     response = llm.invoke(messages)
+
+    if tracker:
+        usage = getattr(response, "usage_metadata", None) or {}
+        tracker.record_llm_call(
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+        )
+
     return response.content
-
-
-if __name__ == "__main__":
-    result = run_risk_manager(
-        stock_name="有研新材",
-        supervisor_summary="综合评级3星，建议观望。",
-        technical_report="换手率8%，涨幅2.3%。",
-        risk_history="历史上有1次高风险记录：追高风险。",
-    )
-    print(result)

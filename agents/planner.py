@@ -1,10 +1,12 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import logging
 from langchain_core.messages import HumanMessage, SystemMessage
 from config import get_llm
+from core.cost_tracker import CostTracker
 
-llm = get_llm(temperature=0.1)
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """你是一位投资研究规划师，负责在正式分析开始前，制定清晰的研究任务计划。
 
@@ -33,23 +35,24 @@ SYSTEM_PROMPT = """你是一位投资研究规划师，负责在正式分析开�
 """
 
 
-def run_planner(stock_name: str, industry: str = "") -> str:
-    """规划研究任务，返回任务计划供后续 Agent 参考"""
-
+def run_planner(stock_name: str, industry: str = "", tracker: CostTracker = None) -> str:
     query = f"请为股票【{stock_name}】制定研究任务计划"
     if industry:
         query += f"，该股票属于【{industry}】行业"
 
+    llm = get_llm(temperature=0.1)
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
         HumanMessage(content=query),
     ]
 
     response = llm.invoke(messages)
+
+    if tracker:
+        usage = getattr(response, "usage_metadata", None) or {}
+        tracker.record_llm_call(
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+        )
+
     return response.content
-
-
-if __name__ == "__main__":
-    print("=== Planner Agent 测试 ===\n")
-    result = run_planner("有研新材", "半导体材料")
-    print(result)

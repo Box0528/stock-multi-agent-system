@@ -1,13 +1,20 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import logging
 from datetime import datetime
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from config import get_llm
 from tools.search import search_stock_news, search_stock_news_today
+from core.event_bus import ConsoleEventBus
+from core.cost_tracker import CostTracker
 
-llm = get_llm(temperature=0.1)
-llm_with_tools = llm.bind_tools([search_stock_news, search_stock_news_today])
+logger = logging.getLogger(__name__)
+
+TOOL_MAP = {
+    "search_stock_news": search_stock_news,
+    "search_stock_news_today": search_stock_news_today,
+}
 
 
 def get_system_prompt() -> str:
@@ -59,12 +66,16 @@ def get_system_prompt() -> str:
 """
 
 
-def run_news_analyst(stock_name: str, industry: str = "") -> str:
-    """运行新闻分析师Agent，返回新闻舆情分析报告"""
+def run_news_analyst(stock_name: str, industry: str = "", bus=None, tracker: CostTracker = None) -> str:
+    if bus is None:
+        bus = ConsoleEventBus()
 
     query = f"请分析股票【{stock_name}】的最新新闻舆情"
     if industry:
         query += f"，该股票属于【{industry}】行业"
+
+    llm = get_llm(temperature=0.1)
+    llm_with_tools = llm.bind_tools([search_stock_news, search_stock_news_today])
 
     messages = [
         SystemMessage(content=get_system_prompt()),
@@ -75,18 +86,28 @@ def run_news_analyst(stock_name: str, industry: str = "") -> str:
         response = llm_with_tools.invoke(messages)
         messages.append(response)
 
+        if tracker:
+            usage = getattr(response, "usage_metadata", None) or {}
+            tracker.record_llm_call(
+                input_tokens=usage.get("input_tokens", 0),
+                output_tokens=usage.get("output_tokens", 0),
+            )
+
         if not response.tool_calls:
             return response.content
 
         for tool_call in response.tool_calls:
             tool_name = tool_call["name"]
             tool_args = tool_call["args"]
-            print(f"[News Analyst] 搜索（{tool_name}）：{tool_args.get('query', '')}")
+            bus.emit_tool_call("news", f"🔍 搜索（{tool_name}）：{tool_args.get('query', '')}")
 
-            if tool_name == "search_stock_news":
-                result = search_stock_news.invoke(tool_args)
-            elif tool_name == "search_stock_news_today":
-                result = search_stock_news_today.invoke(tool_args)
+            tool_fn = TOOL_MAP.get(tool_name)
+            if tool_fn:
+                result = tool_fn.invoke(tool_args)
+                if tracker:
+                    tracker.record_tool_call()
+                    if "search" in tool_name:
+                        tracker.record_search_call()
             else:
                 result = f"未知工具: {tool_name}"
 
@@ -96,9 +117,3 @@ def run_news_analyst(stock_name: str, industry: str = "") -> str:
             ))
 
     return "分析超过最大轮次，请重试。"
-
-
-if __name__ == "__main__":
-    print("=== 新闻分析师 Agent 测试 ===\n")
-    result = run_news_analyst("有研新材", "半导体材料")
-    print(result)

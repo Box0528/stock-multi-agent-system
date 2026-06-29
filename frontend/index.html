@@ -696,7 +696,18 @@ function handleEvent(type, data) {
     const correct = data.was_correct;
     document.getElementById('stext').textContent = '复盘完成 — 预测' + (correct ? '正确 ✓' : '存在偏差，已记录');
 
+  } else if (type === 'cost_summary') {
+    const c = data;
+    const costText = `LLM ${c.llm_calls}次 · Token ${c.total_tokens} · 搜索 ${c.search_api_calls}次 · 工具 ${c.tool_calls}次`;
+    document.getElementById('stotal').textContent += ` | ${costText}`;
+
   } else if (type === 'done') {
+    // 停止所有 agent 计时器
+    Object.keys(agentTimers).forEach(a => {
+      const t = agentTimers[a];
+      if (t) { clearInterval(t); agentTimers[a] = null; }
+    });
+    stopGlobalTimer();
     document.getElementById('sdot').className = 'status-dot done';
     document.getElementById('stext').textContent = '分析完成 ✓';
     document.getElementById('btn-run').disabled = false;
