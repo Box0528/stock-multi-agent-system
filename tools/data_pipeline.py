@@ -115,13 +115,15 @@ def refresh_single_stock(stock_code: str, bus=None) -> dict:
 
         from data_downloader import (
             login_baostock, logout_baostock, fetch_k_data,
-            merge_and_save_csv, get_last_trade_date, get_file_path as dl_get_file_path
+            merge_and_save_csv, get_last_trade_date, resolve_real_trade_date,
+            get_file_path as dl_get_file_path
         )
 
         login_baostock()
 
         today = datetime.now().strftime("%Y-%m-%d")
-        trade_date = get_last_trade_date(today)
+        calendar_date = get_last_trade_date(today)
+        trade_date = resolve_real_trade_date(calendar_date)
 
         if last_date:
             start_date = (pd.to_datetime(last_date) + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -189,12 +191,13 @@ def refresh_industry_stocks(industry: str, bus=None) -> dict:
 
         from data_downloader import (
             login_baostock, logout_baostock, fetch_k_data,
-            merge_and_save_csv, get_last_trade_date,
+            merge_and_save_csv, get_last_trade_date, resolve_real_trade_date,
         )
 
         login_baostock()
         today = datetime.now().strftime("%Y-%m-%d")
-        trade_date = get_last_trade_date(today)
+        calendar_date = get_last_trade_date(today)
+        trade_date = resolve_real_trade_date(calendar_date)
 
         updated = 0
         skipped = 0
