@@ -82,6 +82,7 @@ def run_news_analyst(
     tracker: CostTracker = None,
     lessons: str = "",
     search_keywords: list[str] = None,
+    price_context: str = "",
 ) -> AgentOutput:
     if bus is None:
         bus = ConsoleEventBus()
@@ -90,6 +91,8 @@ def run_news_analyst(
     if industry:
         query += f"，该股票属于【{industry}】行业"
 
+    if price_context:
+        query += f"\n{price_context}"
     if search_keywords:
         query += f"\n\n## 消息面指令（来自研究总监）\n必搜关键词：{json.dumps(search_keywords, ensure_ascii=False)}"
 

@@ -179,6 +179,18 @@ def parallel_analysts_node(state: ResearchState, config: RunnableConfig) -> dict
 
     stock_code = state.get("stock_code") or ""
 
+    # 获取最新价格作为公共上下文（三个分析师共享）
+    price_context = ""
+    try:
+        from tools.stock_data import get_stock_detail
+        if stock_code:
+            price_data = get_stock_detail.invoke({"stock_code": stock_code})
+            price_context = f"\n## 最新行情数据（公共上下文）\n{price_data}\n"
+            if tracker:
+                tracker.record_tool_call()
+    except Exception as e:
+        logger.warning("获取公共价格上下文失败：%s", e)
+
     def run_technical():
         bus.emit_progress("technical", "running", "📊 技术分析师正在分析...")
         from agents.technical_analyst import run_technical_analyst
@@ -209,6 +221,7 @@ def parallel_analysts_node(state: ResearchState, config: RunnableConfig) -> dict
             stock_name, industry, bus=bus, tracker=tracker,
             lessons=lessons_dict.get("news", ""),
             search_keywords=search_kws if search_kws else None,
+            price_context=price_context,
         )
         bus.emit_progress("news", "done", f"✅ 新闻分析完成（置信度 {output.confidence:.0%}）")
         return "news", output
