@@ -44,6 +44,7 @@ class ResearchState(TypedDict):
     news_confidence:      Annotated[float, _keep_last_float]
     sector_confidence:    Annotated[float, _keep_last_float]
     reasoning_traces:     str                                 # 所有推理链拼接
+    search_keywords:      str                                 # Planner 生成的搜索关键词 JSON
 
 
 # ── 节点-1：数据刷新（分析前自动更新行情）──────────────────────
@@ -130,11 +131,24 @@ def planner_node(state: ResearchState, config: RunnableConfig) -> dict:
     from agents.planner import run_planner
     plan = run_planner(stock_name, state["industry"], tracker=tracker)
 
+    # 从 plan 中提取搜索关键词（Planner 输出中的 JSON 数组）
+    import json as _json
+    keywords_str = ""
+    try:
+        import re
+        m = re.search(r'必搜关键词[：:]\s*(\[.+?\])', plan, re.DOTALL)
+        if m:
+            keywords_str = m.group(1)
+            _json.loads(keywords_str)  # 验证是合法 JSON
+    except Exception:
+        keywords_str = ""
+
     bus.emit_progress("planner", "done", "✅ 任务规划完成")
     return {
-        "task_plan":    plan,
-        "current_step": "planner_done",
-        "messages":     [AIMessage(content="任务规划完成")]
+        "task_plan":       plan,
+        "search_keywords": keywords_str,
+        "current_step":    "planner_done",
+        "messages":        [AIMessage(content="任务规划完成")]
     }
 
 
@@ -168,12 +182,19 @@ def parallel_analysts_node(state: ResearchState, config: RunnableConfig) -> dict
         bus.emit_progress("technical", "done", f"✅ 技术分析完成（置信度 {output.confidence:.0%}）")
         return "technical", output
 
+    # 解析搜索关键词
+    try:
+        search_kws = json.loads(state.get("search_keywords", "[]")) if state.get("search_keywords") else []
+    except Exception:
+        search_kws = []
+
     def run_news():
         bus.emit_progress("news", "running", "📰 新闻分析师正在搜索舆情...")
         from agents.news_analyst import run_news_analyst
         output = run_news_analyst(
             stock_name, industry, bus=bus, tracker=tracker,
             lessons=lessons_dict.get("news", ""),
+            search_keywords=search_kws if search_kws else None,
         )
         bus.emit_progress("news", "done", f"✅ 新闻分析完成（置信度 {output.confidence:.0%}）")
         return "news", output

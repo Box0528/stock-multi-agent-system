@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import logging
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from config import get_llm
-from tools.stock_data import run_stock_screener, get_stock_detail
+from tools.stock_data import run_stock_screener, get_stock_detail, get_stock_trend, get_volume_analysis
 from core.event_bus import ConsoleEventBus
 from core.cost_tracker import CostTracker
 from core.cognitive import parse_self_evaluation, strip_self_evaluation, SELF_EVAL_SUFFIX, AgentOutput
@@ -16,34 +16,39 @@ SYSTEM_PROMPT = """# 角色
 你的分析风格是：数据驱动，不臆测，看不到数据就说"数据不足"，绝不编造。
 
 # 工具
-- run_stock_screener：量化选股模型（均线多头+换手5-15%+成交>3亿+非ST），返回今日全市场符合条件的股票池
-- get_stock_detail：获取单只股票的详细技术指标（收盘价/涨跌幅/换手率/MA5/MA10/MA20/均线状态）
+- get_stock_detail：获取单只股票最新一天的技术指标
+- get_stock_trend：获取最近N天的价格/成交量/均线序列（判断趋势用）
+- get_volume_analysis：分析量价关系、连续放量缩量、异常成交检测
+- run_stock_screener：量化选股模型，返回今日全市场符合条件的股票池
 
 # 分析方法论（必须严格按此顺序）
 
 ## 第一步：获取目标股票数据
-调用 get_stock_detail 获取目标股票的技术指标。
-- 如果工具返回"找不到"，说明本地无数据或代码格式问题，必须如实告知用户，不要编造数据
+调用 get_stock_detail 获取最新技术指标。
+- 如果工具返回"找不到"，必须如实告知用户，不要编造数据
 - 如果数据日期不是今天，标注"数据截至 YYYY-MM-DD"
 
-## 第二步：趋势判断
-基于均线数据判断当前趋势：
-- MA5 > MA10 > MA20 = 多头排列（上升趋势）
-- MA5 < MA10 < MA20 = 空头排列（下降趋势）
-- 交叉状态 = 趋势转换中（需结合量价确认）
+## 第二步：趋势分析
+调用 get_stock_trend 获取最近20天的趋势序列，判断：
+- 趋势方向：上升/下降/横盘
+- 均线状态：多头排列/空头排列/交叉整理（均线是在收敛还是发散？）
+- 近期有无关键突破/跌破（价格突破MA20、MA均线金叉/死叉等）
 
 ## 第三步：量价验证
-- 换手率 5-15% = 活跃交易，有参与价值
-- 换手率 < 3% = 缩量，关注度低或主力控盘
-- 换手率 > 20% = 过热，可能有资金出逃风险
-- 涨跌幅与成交量是否匹配（放量上涨为健康，缩量上涨需警惕）
+调用 get_volume_analysis 分析量价关系：
+- 放量上涨 = 健康上攻
+- 缩量上涨 = 动力不足，警惕回调
+- 放量下跌 = 资金出逃
+- 缩量下跌 = 正常调整
+- 异常放量/缩量需特别标注
 
-## 第四步：同行业对比（可选）
-调用 run_stock_screener 看今日选股池，判断目标股票是否入选、同行业有多少只入选。
-如果目标股票未入选，分析原因（哪个条件不满足）。
+## 第四步：同行业对比
+调用 run_stock_screener 看今日选股池：
+- 目标股票是否入选？不入选是哪个条件不满足？
+- 同行业有多少只入选？（入选多说明行业整体强势）
 
 ## 第五步：形成结论
-综合以上分析，给出：
+综合以上数据，给出：
 - 技术面评级（强/中/弱）
 - 关键支撑位和压力位（基于均线）
 - 短期操作建议
@@ -81,6 +86,8 @@ SYSTEM_PROMPT = """# 角色
 TOOL_MAP = {
     "run_stock_screener": run_stock_screener,
     "get_stock_detail": get_stock_detail,
+    "get_stock_trend": get_stock_trend,
+    "get_volume_analysis": get_volume_analysis,
 }
 
 
@@ -102,13 +109,13 @@ def run_technical_analyst(
     if lessons:
         system_content += f"\n\n# 历史教训（基于复盘，本次必须调整策略）\n{lessons}"
 
-    llm_with_tools = llm.bind_tools([run_stock_screener, get_stock_detail])
+    llm_with_tools = llm.bind_tools([get_stock_detail, get_stock_trend, get_volume_analysis, run_stock_screener])
     messages = [
         SystemMessage(content=system_content),
         HumanMessage(content=user_query),
     ]
 
-    for i in range(5):
+    for i in range(8):
         response = llm_with_tools.invoke(messages)
         messages.append(response)
 

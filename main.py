@@ -55,6 +55,7 @@ def run_research(stock_name: str, industry: str = "") -> str:
         "news_confidence":      0.7,
         "sector_confidence":    0.7,
         "reasoning_traces":     "",
+        "search_keywords":      "",
     }
 
     config = {"configurable": {"event_bus": bus, "cost_tracker": tracker}}

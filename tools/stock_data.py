@@ -166,6 +166,142 @@ def get_stock_detail(stock_code: str) -> str:
         f"均线状态：{'多头排列 ✓' if latest['ma5'] > latest['ma10'] > latest['ma20'] else '非多头排列'}"
     )
 @tool
+def get_stock_trend(stock_code: str, days: int = 20) -> str:
+    """获取单只股票最近N天的价格和成交量趋势序列。
+    用于判断趋势方向、量价关系、均线收敛/发散等。"""
+    normalized = _normalize_stock_code(stock_code)
+    file_path = os.path.join(DATA_DIR, f"{normalized}.csv")
+    if not os.path.exists(file_path):
+        return f"找不到股票 {stock_code} 的本地数据。"
+
+    df = pd.read_csv(file_path)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+    df = calc_indicators(df)
+
+    recent = df.tail(days)
+    if recent.empty:
+        return "数据不足"
+
+    lines = [f"股票 {stock_code} 最近 {len(recent)} 个交易日趋势：\n"]
+    lines.append("日期 | 收盘价 | 涨跌幅% | 换手率% | 成交额(亿) | MA5 | MA10 | MA20")
+    lines.append("---|---|---|---|---|---|---|---")
+
+    for _, row in recent.iterrows():
+        amount_yi = row.get("amount", 0) / 1e8
+        ma5 = f"{row['ma5']:.2f}" if pd.notna(row.get('ma5')) else "-"
+        ma10 = f"{row['ma10']:.2f}" if pd.notna(row.get('ma10')) else "-"
+        ma20 = f"{row['ma20']:.2f}" if pd.notna(row.get('ma20')) else "-"
+        lines.append(
+            f"{row['date'].strftime('%m-%d')} | {row['close']:.2f} | "
+            f"{row.get('pctChg', 0):.2f} | {row.get('turn', 0):.2f} | "
+            f"{amount_yi:.2f} | {ma5} | {ma10} | {ma20}"
+        )
+
+    # 趋势摘要
+    first_close = recent.iloc[0]["close"]
+    last_close = recent.iloc[-1]["close"]
+    total_chg = (last_close - first_close) / first_close * 100
+    avg_turn = recent["turn"].mean()
+    vol_trend = recent["amount"].tail(5).mean() / recent["amount"].head(5).mean() if len(recent) >= 10 else 1.0
+
+    lines.append(f"\n--- 趋势摘要 ---")
+    lines.append(f"区间涨跌：{total_chg:+.2f}%（{first_close:.2f} → {last_close:.2f}）")
+    lines.append(f"平均换手率：{avg_turn:.2f}%")
+    lines.append(f"成交量趋势：近5日均量 / 前5日均量 = {vol_trend:.2f}x（{'放量' if vol_trend > 1.2 else '缩量' if vol_trend < 0.8 else '平稳'}）")
+
+    # 均线趋势
+    if pd.notna(recent.iloc[-1].get("ma5")) and pd.notna(recent.iloc[-1].get("ma20")):
+        ma5_last = recent.iloc[-1]["ma5"]
+        ma10_last = recent.iloc[-1]["ma10"]
+        ma20_last = recent.iloc[-1]["ma20"]
+        if ma5_last > ma10_last > ma20_last:
+            lines.append("均线状态：多头排列 ✓（MA5 > MA10 > MA20）")
+        elif ma5_last < ma10_last < ma20_last:
+            lines.append("均线状态：空头排列 ✗（MA5 < MA10 < MA20）")
+        else:
+            # 检查收敛/发散
+            spread = abs(ma5_last - ma20_last) / ma20_last * 100
+            lines.append(f"均线状态：交叉整理中，MA5-MA20 价差 {spread:.2f}%（{'发散' if spread > 3 else '收敛'}）")
+
+    return "\n".join(lines)
+
+
+@tool
+def get_volume_analysis(stock_code: str) -> str:
+    """分析单只股票的量价关系和资金动向。
+    返回连续放量/缩量天数、量价配合度、异常成交检测。"""
+    normalized = _normalize_stock_code(stock_code)
+    file_path = os.path.join(DATA_DIR, f"{normalized}.csv")
+    if not os.path.exists(file_path):
+        return f"找不到股票 {stock_code} 的本地数据。"
+
+    df = pd.read_csv(file_path)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+
+    if len(df) < 10:
+        return "数据不足（需要至少10天数据）"
+
+    recent = df.tail(20).copy()
+    recent["vol_ma5"] = recent["amount"].rolling(5).mean()
+    recent["vol_ratio"] = recent["amount"] / recent["vol_ma5"]
+
+    # 连续放量/缩量天数
+    last_5 = recent.tail(5)
+    vol_up_days = 0
+    vol_down_days = 0
+    for _, row in last_5.iloc[::-1].iterrows():
+        ratio = row.get("vol_ratio", 1.0)
+        if pd.isna(ratio):
+            break
+        if ratio > 1.1:
+            vol_up_days += 1
+        elif ratio < 0.9:
+            vol_down_days += 1
+        else:
+            break
+
+    # 量价配合度
+    last_row = recent.iloc[-1]
+    pct = last_row.get("pctChg", 0)
+    vol_ratio = last_row.get("vol_ratio", 1.0)
+
+    if pct > 0 and vol_ratio > 1.2:
+        vp_match = "放量上涨（健康，资金进场）"
+    elif pct > 0 and vol_ratio < 0.8:
+        vp_match = "缩量上涨（警惕，上涨动力不足）"
+    elif pct < 0 and vol_ratio > 1.2:
+        vp_match = "放量下跌（危险，资金出逃）"
+    elif pct < 0 and vol_ratio < 0.8:
+        vp_match = "缩量下跌（正常调整，抛压减弱）"
+    else:
+        vp_match = "量价平稳"
+
+    # 异常成交检测
+    avg_amount_20 = recent["amount"].mean()
+    today_amount = last_row["amount"]
+    anomaly = ""
+    if today_amount > avg_amount_20 * 2.5:
+        anomaly = "⚠️ 今日成交额为20日均值的 {:.1f} 倍，异常放量".format(today_amount / avg_amount_20)
+    elif today_amount < avg_amount_20 * 0.3:
+        anomaly = "⚠️ 今日成交额仅为20日均值的 {:.1f} 倍，异常缩量".format(today_amount / avg_amount_20)
+
+    lines = [
+        f"量价分析 · {stock_code}",
+        f"",
+        f"今日量价关系：{vp_match}",
+        f"今日成交额：{today_amount/1e8:.2f}亿（vs 5日均量 {recent['vol_ma5'].iloc[-1]/1e8:.2f}亿）",
+        f"量比：{vol_ratio:.2f}",
+        f"连续放量天数：{vol_up_days}" if vol_up_days > 0 else f"连续缩量天数：{vol_down_days}" if vol_down_days > 0 else "成交量无明显趋势",
+    ]
+    if anomaly:
+        lines.append(anomaly)
+
+    return "\n".join(lines)
+
+
+@tool
 def analyze_sector(industry_name: str, top_n: int = 5) -> str:
     """
     分析指定行业板块的整体强弱、资金流向和成交额趋势。

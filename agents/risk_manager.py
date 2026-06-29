@@ -2,16 +2,26 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from config import get_llm
+from tools.stock_data import get_stock_detail, get_volume_analysis
 from core.cost_tracker import CostTracker
 from core.cognitive import parse_self_evaluation, strip_self_evaluation, SELF_EVAL_SUFFIX, AgentOutput
 
 logger = logging.getLogger(__name__)
 
+TOOL_MAP = {
+    "get_stock_detail": get_stock_detail,
+    "get_volume_analysis": get_volume_analysis,
+}
+
 SYSTEM_PROMPT = """# 角色
 你是一位有权否决任何投资建议的风控总监。你的唯一职责是保护本金。
 你的信条：宁可错过十次机会，不可承受一次致命亏损。
+
+# 工具（你可以独立获取数据验证，不依赖其他分析师的报告）
+- get_stock_detail：获取最新技术指标（换手率、均线、涨跌幅）
+- get_volume_analysis：量价关系和异常成交检测
 
 # 你的权力
 - 你可以**推翻**基金经理的买入建议，将其下调至观望或回避
@@ -121,26 +131,51 @@ def run_risk_manager(
 {technical_report[:1500]}
 {history_block}
 """
+    from core.event_bus import ConsoleEventBus
+    if bus is None:
+        bus = ConsoleEventBus()
+
     llm = get_llm(temperature=0.1)
+    llm_with_tools = llm.bind_tools([get_stock_detail, get_volume_analysis])
     messages = [
         SystemMessage(content=system_content),
         HumanMessage(content=user_content),
     ]
-    response = llm.invoke(messages)
 
-    if tracker:
-        usage = getattr(response, "usage_metadata", None) or {}
-        tracker.record_llm_call(
-            input_tokens=usage.get("input_tokens", 0),
-            output_tokens=usage.get("output_tokens", 0),
-        )
+    for _ in range(5):
+        response = llm_with_tools.invoke(messages)
+        messages.append(response)
 
-    raw_report = response.content
-    confidence, details = parse_self_evaluation(raw_report)
-    clean_report = strip_self_evaluation(raw_report)
+        if tracker:
+            usage = getattr(response, "usage_metadata", None) or {}
+            tracker.record_llm_call(
+                input_tokens=usage.get("input_tokens", 0),
+                output_tokens=usage.get("output_tokens", 0),
+            )
 
-    return AgentOutput(
-        report=clean_report,
-        confidence=confidence,
-        confidence_details=details,
-    )
+        if not response.tool_calls:
+            raw_report = response.content
+            confidence, details = parse_self_evaluation(raw_report)
+            clean_report = strip_self_evaluation(raw_report)
+            return AgentOutput(
+                report=clean_report,
+                confidence=confidence,
+                confidence_details=details,
+            )
+
+        for tool_call in response.tool_calls:
+            tool_name = tool_call["name"]
+            tool_args = tool_call["args"]
+            bus.emit_tool_call("risk", f"🔧 {tool_name}({tool_args})")
+
+            tool_fn = TOOL_MAP.get(tool_name)
+            if tool_fn:
+                result = tool_fn.invoke(tool_args)
+                if tracker:
+                    tracker.record_tool_call()
+            else:
+                result = f"未知工具: {tool_name}"
+
+            messages.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"]))
+
+    return AgentOutput(report="风控评估超过最大轮次。", confidence=0.3)

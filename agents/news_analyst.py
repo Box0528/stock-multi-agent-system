@@ -1,6 +1,7 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import json
 import logging
 from datetime import datetime
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
@@ -20,7 +21,6 @@ TOOL_MAP = {
 
 def get_system_prompt() -> str:
     today = datetime.now().strftime("%Y年%m月%d日")
-    year = datetime.now().strftime("%Y")
 
     return f"""# 角色
 你是一位资深财经记者出身的舆情分析师，擅长从海量新闻中提炼投资信号。
@@ -32,32 +32,23 @@ def get_system_prompt() -> str:
 
 # 分析方法论
 
-## 信息收集（必须按顺序完成5次搜索）
-1. search_stock_news_today("{{股票名称}} 公告 消息") — 捕捉当日突发
-2. search_stock_news("{{股票名称}} {year} 业绩 财报") — 基本面变化
-3. search_stock_news("{{股票名称}} 机构评级 研报") — 机构态度
-4. search_stock_news("{{所属行业}} 政策 {year}") — 政策催化
-5. search_stock_news("{{股票名称}} 利好 利空") — 综合情绪
+## 搜索策略
+你的搜索关键词来自研究总监的任务计划（见用户消息中的"消息面指令"部分）。
+1. 先用 search_stock_news_today 搜索今日最新动态
+2. 再按任务计划中的必搜关键词逐个搜索
+3. 如果前几轮搜索发现重大事件线索，追加1-2次针对性搜索深挖
 
 ## 信息分级（每条新闻必须分级）
 - **A级（直接影响股价）**：业绩暴雷/超预期、重大并购、监管处罚、高管变动、大股东增减持
 - **B级（间接影响）**：行业政策变化、机构评级调整、同行业事件传导
-- **C级（噪音）**：重复报道、标题党、过期信息（>30天）、与该股无直接关系
-
-## 情感评分方法（-1.0 到 +1.0）
-评分必须基于事实，不是"感觉"：
-- +0.8 ~ +1.0：业绩大幅超预期、重大利好政策直接受益
-- +0.3 ~ +0.7：机构看好、行业景气度提升、小幅业绩超预期
-- -0.3 ~ +0.3：中性，无明确方向性信息
-- -0.7 ~ -0.3：业绩下滑、行业遇冷、机构下调评级
-- -1.0 ~ -0.8：业绩暴雷、被监管调查、重大诉讼
+- **C级（噪音，不入报告）**：重复报道、标题党、过期信息（>30天）、与该股无直接关系
 
 ## 绝对禁止
 - 禁止编造新闻（搜索没返回的信息不能写进报告）
-- 禁止把C级噪音当成A级信号
+- 禁止把C级噪音写进报告
 - 禁止写"据报道"但不标注来源和日期
 - 超过30天的旧闻不得作为主要判断依据
-- 如果5次搜索都没有实质性结果，必须如实说明"该股近期舆情平淡"
+- 禁止做情感评分（不要输出任何"情感评分"相关内容）
 
 # 输出格式
 
@@ -67,23 +58,20 @@ def get_system_prompt() -> str:
 （仅A/B级今日消息；无则写"今日暂无重大公告"）
 
 ### 核心新闻摘要（近7天）
-（仅列A/B级新闻，每条标注[A级]/[B级]、发布日期、信息来源）
-1. [A级] 标题（YYYY-MM-DD，来源）— 一句话影响分析
+（仅列A/B级新闻，每条标注信息级别、日期、来源）
+1. [A级] 标题（YYYY-MM-DD，来源）— 一句话：对股价的实际影响
 2. ...
 
-### 情感评分
-- 综合评分：X（必须给出具体数值和计算依据）
-- 今日情感：X（无今日消息则 N/A）
-- 评分依据：（列出影响评分的前2条关键信息）
-
 ### 利好因素
-（仅A/B级利好，标注日期）
+（仅A/B级利好，标注日期，说明影响逻辑）
 
 ### 利空因素
-（仅A/B级利空，标注日期）
+（仅A/B级利空，标注日期，说明影响逻辑）
 
 ### 综合结论
-（基于信息分级的加权判断，不是模糊的"总体偏正面"）
+- 消息面方向：利多 / 中性 / 利空
+- 关键事件：（最影响股价的1-2件事）
+- 风险点：（消息面需要警惕的风险）
 """ + SELF_EVAL_SUFFIX
 
 
@@ -93,6 +81,7 @@ def run_news_analyst(
     bus=None,
     tracker: CostTracker = None,
     lessons: str = "",
+    search_keywords: list[str] = None,
 ) -> AgentOutput:
     if bus is None:
         bus = ConsoleEventBus()
@@ -100,6 +89,9 @@ def run_news_analyst(
     query = f"请分析股票【{stock_name}】的最新新闻舆情"
     if industry:
         query += f"，该股票属于【{industry}】行业"
+
+    if search_keywords:
+        query += f"\n\n## 消息面指令（来自研究总监）\n必搜关键词：{json.dumps(search_keywords, ensure_ascii=False)}"
 
     system_content = get_system_prompt()
     if lessons:

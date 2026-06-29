@@ -185,9 +185,10 @@ def save_reflection_to_memory(
     stock_name: str,
     reflection_text: str,
     was_correct: bool,
+    industry: str = "",
 ) -> None:
     try:
-        from memory.vector_store import _get_collection
+        from memory.vector_store import _get_collection, save_agent_lessons
         col = _get_collection("reflections")
         now = datetime.now()
         doc_id = f"{stock_name}_reflection_{now.strftime('%Y%m%d_%H%M%S')}"
@@ -203,8 +204,35 @@ def save_reflection_to_memory(
             ids=[doc_id]
         )
         logger.info("复盘结论已存入 Memory")
+
+        # 解析行为修正建议并存入 agent_lessons
+        lessons = _extract_agent_lessons(reflection_text)
+        if lessons:
+            save_agent_lessons(stock_name, industry, lessons)
+            logger.info("行为修正建议已存入：%s", list(lessons.keys()))
+
     except Exception as e:
         logger.error("复盘存储失败：%s", e)
+
+
+def _extract_agent_lessons(reflection_text: str) -> dict[str, str]:
+    """从复盘报告中提取各 agent 的行为修正建议。"""
+    agent_map = {
+        "Technical Analyst": "technical",
+        "News Analyst": "news",
+        "Sector Analyst": "sector",
+        "Risk Manager": "risk",
+        "Supervisor": "supervisor",
+    }
+    lessons = {}
+    for display_name, key in agent_map.items():
+        pattern = rf'→\s*{display_name}[：:]\s*(.+?)(?:\n|$)'
+        m = re.search(pattern, reflection_text)
+        if m:
+            lesson = m.group(1).strip()
+            if lesson and lesson != "无" and len(lesson) > 5:
+                lessons[key] = lesson
+    return lessons
 
 
 def get_reflection_history(stock_name: str) -> str:
