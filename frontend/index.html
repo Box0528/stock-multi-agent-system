@@ -211,6 +211,9 @@ header{height:48px;border-bottom:1px solid var(--border);display:flex;align-item
       <button class="btn-run" id="btn-run" onclick="startResearch()">
         <span class="run-icon">▶</span> 启动分析
       </button>
+      <button class="btn-run" id="btn-scan" onclick="startScan()" style="margin-top:6px;background:var(--purple)">
+        <span class="run-icon">🔍</span> 今日主动扫描
+      </button>
     </div>
 
     <div class="agents-block">
@@ -717,6 +720,89 @@ function handleEvent(type, data) {
 document.getElementById('inp-stock').addEventListener('keydown', e => {
   if (e.key === 'Enter') startResearch();
 });
+
+async function startScan() {
+  resetUI();
+  document.getElementById('btn-run').disabled = true;
+  document.getElementById('btn-scan').disabled = true;
+  document.getElementById('sdot').className = 'status-dot running';
+  document.getElementById('stext').textContent = '正在执行今日主动扫描...';
+  startGlobalTimer();
+
+  try {
+    const resp = await fetch('/api/scan', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+    });
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream: true});
+      const parts = buf.split('\n\n');
+      buf = parts.pop();
+      for (const part of parts) {
+        const evtLine  = part.split('\n').find(l => l.startsWith('event:'));
+        const dataLine = part.split('\n').find(l => l.startsWith('data:'));
+        if (!dataLine) continue;
+        const type = evtLine ? evtLine.slice(6).trim() : 'message';
+        let data;
+        try { data = JSON.parse(dataLine.slice(5).trim()); } catch(e) { continue; }
+        handleScanEvent(type, data);
+      }
+    }
+  } catch(e) {
+    document.getElementById('sdot').className = 'status-dot error';
+    document.getElementById('stext').textContent = '扫描失败：' + e.message;
+  }
+  document.getElementById('btn-run').disabled = false;
+  document.getElementById('btn-scan').disabled = false;
+}
+
+function handleScanEvent(type, data) {
+  if (type === 'progress') {
+    const {agent, status, message} = data;
+    setAgent(agent, status, message);
+    document.getElementById('stext').textContent = message || '';
+  } else if (type === 'tool_call') {
+    appendLog(data.agent, data.message, 'tool');
+    toolCount++;
+    document.getElementById('st-tools').textContent = toolCount;
+  } else if (type === 'scan_result') {
+    document.getElementById('empty').style.display = 'none';
+    document.getElementById('report-wrap').classList.add('visible');
+    const overview = data.market_overview || '无数据';
+    document.getElementById('rb-final').innerHTML = renderMd(overview);
+    // 切到综合报告 tab
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelector('.tab-btn').classList.add('active');
+    document.getElementById('rb-final').parentElement.classList.add('active');
+    // 隐藏评级卡（扫描模式不需要单股评级）
+    const ratingCard = document.querySelector('.rating-card');
+    if (ratingCard) ratingCard.style.display = 'none';
+    const total = ((Date.now() - globalStart)/1000).toFixed(1);
+    document.getElementById('stotal').textContent = `总耗时 ${total}s`;
+  } else if (type === 'cost_summary') {
+    const c = data;
+    const costText = `LLM ${c.llm_calls}次 · Token ${c.total_tokens} · 搜索 ${c.search_api_calls}次`;
+    document.getElementById('stotal').textContent += ` | ${costText}`;
+  } else if (type === 'error') {
+    stopGlobalTimer();
+    document.getElementById('sdot').className = 'status-dot error';
+    document.getElementById('stext').textContent = '扫描出错：' + data.message;
+  } else if (type === 'done') {
+    Object.keys(agentTimers).forEach(a => {
+      const t = agentTimers[a];
+      if (t) { clearInterval(t); agentTimers[a] = null; }
+    });
+    stopGlobalTimer();
+    document.getElementById('sdot').className = 'status-dot done';
+    document.getElementById('stext').textContent = '扫描完成 ✓';
+  }
+}
 </script>
 </body>
 </html>

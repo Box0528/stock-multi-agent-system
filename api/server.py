@@ -256,6 +256,80 @@ def _run_reflection_async(result: dict, stock_name: str,
     t.start()
 
 
+async def scan_stream():
+    """模式一：主动扫描 SSE 流。"""
+    queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_event_loop()
+
+    bus = EventBus(queue, loop)
+    tracker = CostTracker()
+
+    def run_sync():
+        try:
+            from graph.scan_workflow import scan_workflow
+            from langchain_core.messages import HumanMessage
+
+            initial_state = {
+                "messages":         [HumanMessage(content="今日主动扫描")],
+                "screener_results": "",
+                "selected_stocks":  "[]",
+                "analysis_reports": "[]",
+                "market_overview":  "",
+                "current_step":     "start",
+            }
+
+            config = {"configurable": {"event_bus": bus, "cost_tracker": tracker}}
+            result = scan_workflow.invoke(initial_state, config=config)
+
+            loop.call_soon_threadsafe(queue.put_nowait, AgentEvent(
+                event_type="scan_result", agent="system", status="done",
+                message="", metadata={
+                    "market_overview": result.get("market_overview", ""),
+                    "selected_stocks": result.get("selected_stocks", "[]"),
+                    "analysis_reports": result.get("analysis_reports", "[]"),
+                },
+            ))
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            loop.call_soon_threadsafe(queue.put_nowait, AgentEvent(
+                event_type="error", agent="system", status="error", message=str(e),
+            ))
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, AgentEvent(
+                event_type="cost_summary", agent="system", status="done",
+                message="", metadata=tracker.snapshot().to_dict(),
+            ))
+            loop.call_soon_threadsafe(queue.put_nowait, AgentEvent(
+                event_type="done", agent="system", status="done", message="",
+            ))
+
+    t = threading.Thread(target=run_sync, daemon=True)
+    t.start()
+
+    yield make_sse("ping", {"message": "连接成功，开始主动扫描..."})
+
+    while True:
+        try:
+            event: AgentEvent = await asyncio.wait_for(queue.get(), timeout=600)
+        except asyncio.TimeoutError:
+            yield make_sse("error", {"message": "扫描超时"})
+            break
+        yield _event_to_sse(event)
+        if event.event_type in ("done", "error"):
+            break
+
+
+@app.post("/api/scan")
+async def scan():
+    return StreamingResponse(
+        scan_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/api/research")
 async def research(req: ResearchRequest):
     try:
