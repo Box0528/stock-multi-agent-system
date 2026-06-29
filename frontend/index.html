@@ -417,6 +417,8 @@ let doneCount = 0;
 const AGENTS = ['planner','technical','news','sector','supervisor','risk'];
 
 function startAgentTimer(agent) {
+  // 先清掉旧的 interval，防止重复 running 事件导致泄漏
+  if (agentTimers[agent]) clearInterval(agentTimers[agent]);
   agentStart[agent] = Date.now();
   agentTimers[agent] = setInterval(() => {
     const s = ((Date.now() - agentStart[agent]) / 1000).toFixed(1);
@@ -426,10 +428,15 @@ function startAgentTimer(agent) {
 }
 
 function stopAgentTimer(agent) {
-  clearInterval(agentTimers[agent]);
-  const s = ((Date.now() - agentStart[agent]) / 1000).toFixed(1);
-  const el = document.getElementById(`at-${agent}`);
-  if (el) el.textContent = `${s}s`;
+  if (agentTimers[agent]) {
+    clearInterval(agentTimers[agent]);
+    agentTimers[agent] = null;
+  }
+  if (agentStart[agent]) {
+    const s = ((Date.now() - agentStart[agent]) / 1000).toFixed(1);
+    const el = document.getElementById(`at-${agent}`);
+    if (el) el.textContent = `${s}s`;
+  }
 }
 
 function startGlobalTimer() {
@@ -453,7 +460,7 @@ function setAgent(agent, status, msg) {
   row.className = `agent-row ${status}`;
   badge.textContent = status === 'running' ? 'RUN' : status === 'done' ? 'DONE' : 'IDLE';
 
-  if (status === 'running') startAgentTimer(agent);
+  if (status === 'running' && !agentTimers[agent]) startAgentTimer(agent);
   if (status === 'done') {
     stopAgentTimer(agent);
     doneCount++;
@@ -631,8 +638,16 @@ async function fetchSSE(code) {
     document.getElementById('sdot').className = 'status-dot error';
     document.getElementById('stext').textContent = '连接失败：' + e.message;
     document.getElementById('btn-run').disabled = false;
-    stopGlobalTimer();
   }
+  // SSE 流结束兜底：强制停止所有计时器
+  stopAllTimers();
+}
+
+function stopAllTimers() {
+  Object.keys(agentTimers).forEach(a => {
+    if (agentTimers[a]) { clearInterval(agentTimers[a]); agentTimers[a] = null; }
+  });
+  stopGlobalTimer();
 }
 
 function handleEvent(type, data) {
@@ -757,6 +772,8 @@ async function startScan() {
     document.getElementById('sdot').className = 'status-dot error';
     document.getElementById('stext').textContent = '扫描失败：' + e.message;
   }
+  // SSE 流结束兜底：强制停止所有计时器
+  stopAllTimers();
   document.getElementById('btn-run').disabled = false;
   document.getElementById('btn-scan').disabled = false;
 }
