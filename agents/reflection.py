@@ -191,9 +191,9 @@ def save_reflection_to_memory(
         from memory.vector_store import _get_collection, save_agent_lessons
         col = _get_collection("reflections")
         now = datetime.now()
-        doc_id = f"{stock_name}_reflection_{now.strftime('%Y%m%d_%H%M%S')}"
+        doc_id = f"{stock_name}_reflection_{now.strftime('%Y%m%d')}"
 
-        col.add(
+        col.upsert(
             documents=[reflection_text[:1000]],
             metadatas=[{
                 "stock_name": stock_name,

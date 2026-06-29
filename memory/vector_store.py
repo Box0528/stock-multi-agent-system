@@ -47,7 +47,8 @@ def save_prediction(
 ) -> str:
     col = _get_collection("predictions")
     now = datetime.now()
-    doc_id = f"{stock_name}_{now.strftime('%Y%m%d_%H%M%S')}"
+    # 同股同日只保留最新一次（upsert），防止多次分析污染复盘
+    doc_id = f"{stock_name}_{now.strftime('%Y%m%d')}"
 
     meta = {
         "stock_name": stock_name,
@@ -60,8 +61,8 @@ def save_prediction(
         "timestamp":  now.isoformat(),
     }
     embed_text = f"{stock_name} {industry} 建议:{advice} 评级:{rating} 风险:{risk_level} {final_report[:500]}"
-    col.add(documents=[embed_text], metadatas=[meta], ids=[doc_id])
-    print(f"[Memory] 预测记录已保存：{doc_id}")
+    col.upsert(documents=[embed_text], metadatas=[meta], ids=[doc_id])
+    logger.info("预测记录已保存（upsert）：%s", doc_id)
     return doc_id
 
 
@@ -113,7 +114,7 @@ def save_sector_score(
 ) -> None:
     col = _get_collection("sector_scores")
     now = datetime.now()
-    doc_id = f"{industry}_{now.strftime('%Y%m%d_%H%M%S')}"
+    doc_id = f"{industry}_{now.strftime('%Y%m%d')}"
     meta = {
         "industry":       industry,
         "strength_score": strength_score,
@@ -124,8 +125,8 @@ def save_sector_score(
         "timestamp":      now.isoformat(),
     }
     embed_text = f"{industry} 强度:{strength_score} 上涨:{up_ratio}% 资金:{fund_trend}"
-    col.add(documents=[embed_text], metadatas=[meta], ids=[doc_id])
-    print(f"[Memory] 板块评分已保存：{industry} {strength_score}分")
+    col.upsert(documents=[embed_text], metadatas=[meta], ids=[doc_id])
+    logger.info("板块评分已保存（upsert）：%s %.1f分", industry, strength_score)
 
 
 def get_sector_trend(industry: str, top_k: int = 5) -> list:
@@ -178,7 +179,7 @@ def save_risk_record(
 ) -> None:
     col = _get_collection("risk_records")
     now = datetime.now()
-    doc_id = f"{stock_name}_risk_{now.strftime('%Y%m%d_%H%M%S')}"
+    doc_id = f"{stock_name}_risk_{now.strftime('%Y%m%d')}"
     meta = {
         "stock_name":   stock_name,
         "risk_level":   risk_level,
@@ -188,8 +189,8 @@ def save_risk_record(
         "timestamp":    now.isoformat(),
     }
     embed_text = f"{stock_name} 风险:{risk_level} 信号:{','.join(risk_signals)} 结论:{conclusion}"
-    col.add(documents=[embed_text], metadatas=[meta], ids=[doc_id])
-    print(f"[Memory] 风控记录已保存：{stock_name} {risk_level}")
+    col.upsert(documents=[embed_text], metadatas=[meta], ids=[doc_id])
+    logger.info("风控记录已保存（upsert）：%s %s", stock_name, risk_level)
 
 
 def get_risk_history(stock_name: str, top_k: int = 3) -> list:
@@ -314,7 +315,7 @@ def save_agent_lessons(
     for agent_name, lesson_text in lessons.items():
         if not lesson_text:
             continue
-        doc_id = f"{stock_name}_{agent_name}_{now.strftime('%Y%m%d_%H%M%S')}"
+        doc_id = f"{stock_name}_{agent_name}_{now.strftime('%Y%m%d')}"
         meta = {
             "stock_name": stock_name,
             "industry": industry,
@@ -322,7 +323,7 @@ def save_agent_lessons(
             "date": now.strftime("%Y-%m-%d"),
             "timestamp": now.isoformat(),
         }
-        col.add(documents=[lesson_text], metadatas=[meta], ids=[doc_id])
+        col.upsert(documents=[lesson_text], metadatas=[meta], ids=[doc_id])
 
     logger.info("Agent 教训已保存：%s, %d 条", stock_name, len(lessons))
 
