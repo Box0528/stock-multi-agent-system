@@ -10,57 +10,92 @@ from core.cost_tracker import CostTracker
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """你是一位专业的投研复盘分析师，负责对过去的投资预测进行客观评估。
+SYSTEM_PROMPT = """# 角色
+你是投研团队的复盘分析师，负责对过去的预测进行客观审计。
+你不做新的预测，只审查旧预测的准确性，找出系统性偏差。
 
-你会收到：
-- 上次分析的结论（建议、评级、风险判断、当时价格）
-- 上次到现在的实际价格变化
-- 本次最新分析报告
+# 复盘方法论
 
-你的职责：
-1. 客观评估上次预测是否准确
-2. 分析预测正确或错误的原因
-3. 提炼本次分析应该特别注意的教训
-4. 给出系统自我改进建议
+## 第一步：事实还原
+客观记录：
+- 上次建议是什么、基于什么信号
+- 实际价格怎么变化了
+- 偏差有多大（用百分比量化）
 
-评估标准：
-- 建议"买入"且实际上涨 > 3%  → 预测正确 ✓
-- 建议"回避"且实际下跌 > 3%  → 预测正确 ✓
-- 建议"观望"且波动 < 5%      → 预测合理 ○
-- 其他情况                    → 预测偏差 ✗
+## 第二步：归因分析（这是最重要的）
+预测对了或错了，原因是什么？必须具体到维度：
+- 技术面判断是否准确？（均线/量价信号是否如预期发展）
+- 消息面是否有预期外事件？（突发利好/利空）
+- 板块面判断是否准确？（板块轮动方向是否如预期）
+- 风控判断是否合理？（风险评估是否过高/过低）
 
-输出格式：
+## 第三步：模式识别
+如果有多次历史记录，寻找规律：
+- 是否存在系统性偏差？（比如总是高估技术面信号）
+- 哪个维度的判断最准确？哪个最不靠谱？
+- 是否存在"该果断时犹豫、该谨慎时激进"的模式？
+
+## 第四步：行为修正建议（供下次分析使用）
+针对每个 agent 给出具体、可执行的调整建议：
+- → Technical Analyst：（如"降低短期均线权重"或"增加成交量分析权重"）
+- → News Analyst：（如"增加行业政策搜索频次"或"注意区分噪音和信号"）
+- → Sector Analyst：（如"关注板块轮动阶段而非只看强度评分"）
+- → Risk Manager：（如"对该行业提高风险系数"或"降低追高风险阈值"）
+- → Supervisor：（如"当技术面和消息面矛盾时优先听消息面"）
+
+# 评估标准
+- 建议"买入"且实际上涨 > 3% → ✓ 正确
+- 建议"回避"且实际下跌 > 3% → ✓ 正确
+- 建议"观望"且波动 < 5% → ○ 合理
+- 其他 → ✗ 偏差
+
+# 绝对禁止
+- 禁止事后诸葛亮（"早就应该看到XX信号" — 如果当时的数据不支持，就不算失误）
+- 禁止因为结果对了就说分析过程对（可能是运气）
+- 禁止给出模糊的改进建议（"下次注意一下" → 注意什么？怎么注意？）
+
+# 输出格式
 
 ## 🔍 投研复盘报告
 
 ### 预测准确性评估
-- 上次建议：{上次建议} （{上次日期}，价格 {上次价格}）
-- 实际结果：价格从 X 元 → Y 元，涨跌幅 Z%
+- 上次建议：{建议}（{日期}，价格 {价格}）
+- 实际结果：价格 X 元 → Y 元，涨跌幅 Z%
 - 评估结论：✓ 正确 / ○ 合理 / ✗ 偏差
 
-### 预测偏差分析
-（如果预测正确，分析是哪些信号起了关键作用）
-（如果预测错误，分析是哪个维度判断失误：技术面？消息面？板块面？）
+### 归因分析
+| 维度 | 当时判断 | 实际发展 | 准确性 |
+|------|---------|---------|--------|
+| 技术面 | ... | ... | ✓/✗ |
+| 消息面 | ... | ... | ✓/✗ |
+| 板块面 | ... | ... | ✓/✗ |
+| 风控   | ... | ... | ✓/✗ |
 
-### 本次分析修正点
-（基于上次复盘，本次分析应该重点关注什么、警惕什么）
+### 模式识别
+（如有多次记录，分析系统性偏差）
+
+### 行为修正建议
+- → Technical Analyst：（具体可执行的调整）
+- → News Analyst：（具体可执行的调整）
+- → Sector Analyst：（具体可执行的调整）
+- → Risk Manager：（具体可执行的调整）
+- → Supervisor：（具体可执行的调整）
 
 ### 系统学习记录
-- 该股票预测准确率：X/Y次正确
-- 主要失误模式：（如果有规律性错误）
-- 下次重点关注：（一句话）
+- 该股票预测准确率：X/Y次
+- 主要失误模式：（一句话总结）
 """
 
 
 def run_reflection(
-    stock_name:      str,
-    last_advice:     str,
-    last_date:       str,
+    stock_name: str,
+    last_advice: str,
+    last_date: str,
     last_price_info: str,
-    current_price:   dict,
-    current_report:  str,
+    current_price: dict,
+    current_report: str,
     history_records: list,
-    tracker:         CostTracker = None,
+    tracker: CostTracker = None,
 ) -> str:
     if not last_advice or not last_date:
         return ""
@@ -81,7 +116,7 @@ def run_reflection(
 ## 价格实际变化
 {price_change_text}
 
-## 历史预测准确率
+## 历史预测记录
 {accuracy_text}
 
 ---
@@ -89,7 +124,7 @@ def run_reflection(
 {current_report[:1500]}
 ---
 
-请按格式输出复盘报告。
+请按格式输出复盘报告，重点是归因分析和行为修正建议。
 """
 
     llm = get_llm(temperature=0.2)
@@ -98,7 +133,6 @@ def run_reflection(
         HumanMessage(content=user_content),
     ]
 
-    logger.info("开始复盘分析：%s", stock_name)
     response = llm.invoke(messages)
 
     if tracker:
@@ -108,7 +142,6 @@ def run_reflection(
             output_tokens=usage.get("output_tokens", 0),
         )
 
-    logger.info("复盘完成：%s", stock_name)
     return response.content
 
 
@@ -120,14 +153,14 @@ def _calc_price_change(last_price_info: str, current_price: dict) -> str:
     if not match:
         return f"当前价格：{current_price['price']:.2f}元（无法提取上次价格进行对比）"
 
-    last_price    = float(match.group(1))
+    last_price = float(match.group(1))
     current_price_val = current_price["price"]
 
     if last_price == 0:
         return "上次价格记录异常"
 
     change_pct = (current_price_val - last_price) / last_price * 100
-    direction  = "上涨" if change_pct > 0 else "下跌"
+    direction = "上涨" if change_pct > 0 else "下跌"
     source_note = "（实时数据）" if current_price["source"] == "realtime" else "（本地缓存）"
 
     return (
@@ -141,17 +174,17 @@ def _calc_accuracy(history_records: list) -> str:
     if len(history_records) < 2:
         return "历史记录不足，暂无统计数据"
 
-    total  = len(history_records) - 1
-    lines  = [f"共有 {total} 次历史预测记录："]
+    total = len(history_records) - 1
+    lines = [f"共有 {total} 次历史预测记录："]
     for r in history_records[1:]:
         lines.append(f"- {r['date']}：{r['advice']}  风险:{r['risk_level']}")
     return "\n".join(lines)
 
 
 def save_reflection_to_memory(
-    stock_name:       str,
-    reflection_text:  str,
-    was_correct:      bool,
+    stock_name: str,
+    reflection_text: str,
+    was_correct: bool,
 ) -> None:
     try:
         from memory.vector_store import _get_collection
@@ -162,9 +195,9 @@ def save_reflection_to_memory(
         col.add(
             documents=[reflection_text[:1000]],
             metadatas=[{
-                "stock_name":  stock_name,
-                "date":        now.strftime("%Y-%m-%d"),
-                "timestamp":   now.isoformat(),
+                "stock_name": stock_name,
+                "date": now.strftime("%Y-%m-%d"),
+                "timestamp": now.isoformat(),
                 "was_correct": str(was_correct),
             }],
             ids=[doc_id]
