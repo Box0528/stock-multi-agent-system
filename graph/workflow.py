@@ -9,6 +9,7 @@ from typing import TypedDict, Annotated, List
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langchain_core.runnables import RunnableConfig
 
 from core.event_bus import get_event_bus
 from core.cost_tracker import get_cost_tracker
@@ -50,7 +51,7 @@ def _lookup_industry(stock_name: str) -> str:
 
 
 # ── 节点0：Memory 加载 ────────────────────────────────────────
-def memory_load_node(state: ResearchState, config: dict) -> dict:
+def memory_load_node(state: ResearchState, config: RunnableConfig) -> dict:
     bus = get_event_bus(config)
     stock_name = state["stock_name"]
     bus.emit_progress("planner", "running", f"🧠 加载历史记忆：{stock_name}")
@@ -83,7 +84,7 @@ def memory_load_node(state: ResearchState, config: dict) -> dict:
 
 
 # ── 节点1：Planner ────────────────────────────────────────────
-def planner_node(state: ResearchState, config: dict) -> dict:
+def planner_node(state: ResearchState, config: RunnableConfig) -> dict:
     bus = get_event_bus(config)
     tracker = get_cost_tracker(config)
     stock_name = state["stock_name"]
@@ -102,7 +103,7 @@ def planner_node(state: ResearchState, config: dict) -> dict:
 
 
 # ── 节点2：三个分析师真并行 ───────────────────────────────────
-def parallel_analysts_node(state: ResearchState, config: dict) -> dict:
+def parallel_analysts_node(state: ResearchState, config: RunnableConfig) -> dict:
     bus = get_event_bus(config)
     tracker = get_cost_tracker(config)
 
@@ -161,7 +162,7 @@ def parallel_analysts_node(state: ResearchState, config: dict) -> dict:
 
 
 # ── 节点3：Supervisor ─────────────────────────────────────────
-def supervisor_node(state: ResearchState, config: dict) -> dict:
+def supervisor_node(state: ResearchState, config: RunnableConfig) -> dict:
     bus = get_event_bus(config)
     tracker = get_cost_tracker(config)
 
@@ -187,7 +188,7 @@ def supervisor_node(state: ResearchState, config: dict) -> dict:
 
 
 # ── 节点4：Risk Manager ───────────────────────────────────────
-def risk_node(state: ResearchState, config: dict) -> dict:
+def risk_node(state: ResearchState, config: RunnableConfig) -> dict:
     bus = get_event_bus(config)
     tracker = get_cost_tracker(config)
 
@@ -213,7 +214,7 @@ def risk_node(state: ResearchState, config: dict) -> dict:
 
 
 # ── 节点5：Memory 保存 ────────────────────────────────────────
-def memory_save_node(state: ResearchState, config: dict) -> dict:
+def memory_save_node(state: ResearchState, config: RunnableConfig) -> dict:
     bus = get_event_bus(config)
     bus.emit_progress("system", "running", "💾 保存本次分析结果...")
 

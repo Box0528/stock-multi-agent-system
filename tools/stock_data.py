@@ -123,15 +123,32 @@ def run_stock_screener(top_n_industries: int = 10) -> str:
 
     return "\n".join(output_lines)
 
+def _normalize_stock_code(raw_code: str) -> str:
+    """将各种格式的股票代码统一映射到本地文件名（如 sh_600226）。
+    支持：600226.SH / sh.600226 / 600226 / SH600226 等。"""
+    code = raw_code.strip().upper()
+    # 去掉所有点号
+    code = code.replace(".", "")
+    # 提取6位数字
+    digits = "".join(c for c in code if c.isdigit())
+    if len(digits) < 6:
+        return raw_code.replace(".", "_")
+    digits = digits[-6:]
+    # 判断市场前缀
+    prefix = "sh" if digits[0] in ("6", "9") else "sz"
+    return f"{prefix}_{digits}"
+
+
 @tool
 def get_stock_detail(stock_code: str) -> str:
     """
     获取单只股票的详细技术指标数据。
-    输入股票代码，如 '600519.SH'
+    输入股票代码，如 '600519' 或 '600519.SH' 或 'sh.600519'
     """
-    file_path = os.path.join(DATA_DIR, f"{stock_code.replace('.', '_')}.csv")
+    normalized = _normalize_stock_code(stock_code)
+    file_path = os.path.join(DATA_DIR, f"{normalized}.csv")
     if not os.path.exists(file_path):
-        return f"找不到股票 {stock_code} 的本地数据。"
+        return f"找不到股票 {stock_code} 的本地数据（尝试文件：{normalized}.csv）。"
 
     df = pd.read_csv(file_path)
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
