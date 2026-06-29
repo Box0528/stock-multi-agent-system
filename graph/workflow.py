@@ -46,6 +46,39 @@ class ResearchState(TypedDict):
     reasoning_traces:     str                                 # 所有推理链拼接
 
 
+# ── 节点-1：数据刷新（分析前自动更新行情）──────────────────────
+def data_refresh_node(state: ResearchState, config: RunnableConfig) -> dict:
+    bus = get_event_bus(config)
+    stock_code = state.get("stock_code") or ""
+    stock_name = state["stock_name"]
+
+    if not stock_code:
+        # CLI 模式可能没有 stock_code，尝试从 meta 查
+        try:
+            meta_df = pd.read_csv(os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "meta", "stock_meta.csv"))
+            match = meta_df[meta_df["name"] == stock_name]
+            if not match.empty:
+                stock_code = match.iloc[0]["code"]
+        except Exception:
+            pass
+
+    if not stock_code:
+        bus.emit_progress("system", "running", "📡 未找到股票代码，跳过数据更新")
+        return {"current_step": "data_refreshed"}
+
+    try:
+        from tools.data_pipeline import refresh_single_stock
+        result = refresh_single_stock(stock_code, bus=bus)
+        if not result["ok"]:
+            bus.emit_progress("system", "running", f"📡 数据更新失败：{result['message']}，使用本地缓存继续")
+    except Exception as e:
+        logger.warning("数据刷新异常（不影响分析）：%s", e)
+        bus.emit_progress("system", "running", "📡 数据更新异常，使用本地缓存继续")
+
+    return {"current_step": "data_refreshed"}
+
+
 # ── 节点0：Memory 加载 ────────────────────────────────────────
 def memory_load_node(state: ResearchState, config: RunnableConfig) -> dict:
     bus = get_event_bus(config)
@@ -289,6 +322,7 @@ def memory_save_node(state: ResearchState, config: RunnableConfig) -> dict:
 def build_workflow():
     g = StateGraph(ResearchState)
 
+    g.add_node("data_refresh", data_refresh_node)
     g.add_node("memory_load",  memory_load_node)
     g.add_node("planner",      planner_node)
     g.add_node("analysts",     parallel_analysts_node)
@@ -296,7 +330,8 @@ def build_workflow():
     g.add_node("risk",         risk_node)
     g.add_node("memory_save",  memory_save_node)
 
-    g.set_entry_point("memory_load")
+    g.set_entry_point("data_refresh")
+    g.add_edge("data_refresh", "memory_load")
     g.add_edge("memory_load",  "planner")
     g.add_edge("planner",      "analysts")
     g.add_edge("analysts",     "supervisor")
