@@ -6,6 +6,21 @@ from langchain_core.tools import tool
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "local_stock_data")
 META_FILE = os.path.join(BASE_DIR, "meta", "stock_meta.csv")
+CONCEPT_MAP_FILE = os.path.join(BASE_DIR, "meta", "concept_member_map.csv")
+
+
+def lookup_stock_concepts(stock_name: str) -> list[str]:
+    """查询某只股票所属的所有概念板块。返回概念名称列表。"""
+    if not os.path.exists(CONCEPT_MAP_FILE):
+        return []
+    try:
+        df = pd.read_csv(CONCEPT_MAP_FILE)
+        matches = df[df["stock_name"] == stock_name]
+        if matches.empty:
+            return []
+        return matches["concept_name"].unique().tolist()
+    except Exception:
+        return []
 
 def calc_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()

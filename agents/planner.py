@@ -59,10 +59,12 @@ SYSTEM_PROMPT = """# 角色
 """
 
 
-def run_planner(stock_name: str, industry: str = "", tracker: CostTracker = None) -> str:
+def run_planner(stock_name: str, industry: str = "", tracker: CostTracker = None, concept_info: str = "") -> str:
     query = f"请为股票【{stock_name}】制定研究任务计划"
     if industry:
-        query += f"，该股票属于【{industry}】行业"
+        query += f"\n\n⚠️ 系统确认的行业分类：【{industry}】（以此为准，禁止用你自己的知识猜测行业）"
+    if concept_info:
+        query += f"\n📌 该股票{concept_info}"
 
     llm = get_llm(temperature=0.1)
     messages = [

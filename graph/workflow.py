@@ -135,8 +135,19 @@ def planner_node(state: ResearchState, config: RunnableConfig) -> dict:
 
     bus.emit_progress("planner", "running", "📋 Planner 正在规划分析任务...")
 
+    # 注入真实行业和概念信息
+    real_industry = state.get("real_industry") or state.get("industry") or ""
+    from tools.stock_data import lookup_stock_concepts
+    concepts = lookup_stock_concepts(stock_name)
+    concept_hint = f"，所属概念板块：{', '.join(concepts[:10])}" if concepts else ""
+
     from agents.planner import run_planner
-    plan = run_planner(stock_name, state["industry"], tracker=tracker)
+    plan = run_planner(
+        stock_name,
+        real_industry,
+        tracker=tracker,
+        concept_info=concept_hint,
+    )
 
     # 从 plan 中提取搜索关键词（Planner 输出中的 JSON 数组）
     import json as _json
@@ -178,6 +189,11 @@ def parallel_analysts_node(state: ResearchState, config: RunnableConfig) -> dict
         lessons_dict = {}
 
     stock_code = state.get("stock_code") or ""
+
+    # 获取概念信息
+    from tools.stock_data import lookup_stock_concepts
+    concepts = lookup_stock_concepts(stock_name)
+    concept_context = f"\n📌 所属概念板块：{', '.join(concepts[:10])}\n" if concepts else ""
 
     # 获取最新价格作为公共上下文（三个分析师共享）
     price_context = ""
@@ -221,7 +237,7 @@ def parallel_analysts_node(state: ResearchState, config: RunnableConfig) -> dict
             stock_name, industry, bus=bus, tracker=tracker,
             lessons=lessons_dict.get("news", ""),
             search_keywords=search_kws if search_kws else None,
-            price_context=price_context,
+            price_context=price_context + concept_context,
         )
         bus.emit_progress("news", "done", f"✅ 新闻分析完成（置信度 {output.confidence:.0%}）")
         return "news", output
