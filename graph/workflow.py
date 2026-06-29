@@ -177,10 +177,17 @@ def parallel_analysts_node(state: ResearchState, config: RunnableConfig) -> dict
     except Exception:
         lessons_dict = {}
 
+    stock_code = state.get("stock_code") or ""
+
     def run_technical():
         bus.emit_progress("technical", "running", "📊 技术分析师正在分析...")
         from agents.technical_analyst import run_technical_analyst
-        query = f"请分析股票【{stock_name}】的技术面，结合任务计划：{task_plan[:200]}"
+        code_hint = f"（代码：{stock_code}）" if stock_code else ""
+        query = (
+            f"请分析股票【{stock_name}】{code_hint}的技术面。"
+            f"必须使用代码 {stock_code} 调用工具，不要猜测其他代码。\n"
+            f"任务计划：{task_plan[:200]}"
+        )
         output = run_technical_analyst(
             query, bus=bus, tracker=tracker,
             lessons=lessons_dict.get("technical", ""),
