@@ -1,0 +1,33 @@
+[project]
+name = "stock-research-agent"
+version = "0.1.0"
+description = "Multi-Agent stock research system with cognitive capabilities"
+requires-python = ">=3.10"
+
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "langgraph>=1.2.0",
+    "langchain-core>=0.3.0",
+    "langchain-openai>=0.3.0",
+    "chromadb>=0.4.0",
+    "sentence-transformers>=2.2.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "akshare>=1.10.0",
+    "tavily-python>=0.3.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "httpx>=0.24.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

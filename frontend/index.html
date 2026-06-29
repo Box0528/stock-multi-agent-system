@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>股票研究 Multi-Agent · 智能投研系统</title>
+<style>
+:root {
+  --bg:       #090e14;
+  --s1:       #0d1520;
+  --s2:       #111d2e;
+  --s3:       #162035;
+  --border:   #1e2d42;
+  --border2:  #243549;
+  --text:     #cdd9e5;
+  --muted:    #5c7a96;
+  --accent:   #4493f8;
+  --accent2:  #1f6feb;
+  --green:    #3fb950;
+  --yellow:   #e3b341;
+  --red:      #f85149;
+  --purple:   #a371f7;
+  --teal:     #39d353;
+  --r: 6px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:"SF Mono",ui-monospace,"Cascadia Code",monospace;font-size:13px;line-height:1.6;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+
+/* ── 顶栏 ── */
+header{height:48px;border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 16px;gap:16px;flex-shrink:0;background:var(--s1)}
+.logo{display:flex;align-items:center;gap:8px}
+.logo-mark{width:24px;height:24px;border-radius:4px;background:linear-gradient(135deg,#4493f8,#a371f7);display:flex;align-items:center;justify-content:center;font-size:12px}
+.logo-text{font-size:13px;font-weight:700;letter-spacing:.02em;color:#fff}
+.logo-sub{font-size:11px;color:var(--muted);margin-left:2px}
+.header-mid{flex:1;display:flex;align-items:center;justify-content:center;gap:24px}
+.nav-pill{display:flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;background:var(--s2);border:1px solid var(--border);font-size:11px;color:var(--muted)}
+.nav-pill span{width:6px;height:6px;border-radius:50%;background:var(--green)}
+.header-right{display:flex;align-items:center;gap:8px}
+.time-display{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+
+/* ── 主布局 ── */
+.workspace{flex:1;display:grid;grid-template-columns:280px 1fr;overflow:hidden}
+
+/* ── 左侧 ── */
+.panel-left{border-right:1px solid var(--border);display:flex;flex-direction:column;background:var(--s1);overflow:hidden}
+
+.input-block{padding:16px;border-bottom:1px solid var(--border)}
+.block-label{font-size:10px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.block-label::before{content:'';width:3px;height:10px;background:var(--accent);border-radius:2px;display:inline-block}
+
+.field{margin-bottom:10px}
+.field label{display:block;font-size:10px;color:var(--muted);margin-bottom:4px;letter-spacing:.05em}
+.field input{width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);padding:7px 10px;font-size:12px;font-family:inherit;outline:none;transition:border-color .15s,box-shadow .15s}
+.field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(68,147,248,.12)}
+.field input::placeholder{color:var(--muted)}
+
+.btn-run{width:100%;background:var(--accent);color:#fff;border:none;border-radius:var(--r);padding:9px;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;letter-spacing:.04em;transition:background .15s,transform .1s;margin-top:4px;display:flex;align-items:center;justify-content:center;gap:8px}
+.btn-run:hover{background:var(--accent2)}
+.btn-run:active{transform:scale(.98)}
+.btn-run:disabled{background:var(--s3);color:var(--muted);cursor:not-allowed;transform:none}
+.btn-run .run-icon{font-size:14px}
+
+/* Agent 列表 */
+.agents-block{flex:1;overflow-y:auto;padding:14px}
+.agents-block::-webkit-scrollbar{width:4px}
+.agents-block::-webkit-scrollbar-track{background:transparent}
+.agents-block::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
+
+.agent-row{border:1px solid var(--border);border-radius:var(--r);margin-bottom:6px;overflow:hidden;transition:border-color .2s}
+.agent-row.running{border-color:var(--accent)}
+.agent-row.done{border-color:rgba(63,185,80,.5)}
+.agent-row.error{border-color:var(--red)}
+
+.agent-head{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;user-select:none}
+.agent-icon{width:24px;height:24px;border-radius:4px;background:var(--s3);display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+.agent-row.running .agent-icon{animation:pulse 1.2s ease-in-out infinite}
+.agent-info{flex:1;min-width:0}
+.agent-name{font-size:11px;font-weight:700;color:var(--text);letter-spacing:.02em}
+.agent-sub{font-size:10px;color:var(--muted);margin-top:1px}
+.agent-meta{display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0}
+.agent-status{font-size:10px;padding:2px 7px;border-radius:10px;background:var(--s3);color:var(--muted);letter-spacing:.04em}
+.agent-row.running .agent-status{background:rgba(68,147,248,.15);color:var(--accent)}
+.agent-row.done    .agent-status{background:rgba(63,185,80,.12);color:var(--green)}
+.agent-timer{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:36px;text-align:right}
+
+.agent-logs{padding:0 10px;max-height:0;overflow:hidden;transition:max-height .2s ease}
+.agent-row.running .agent-logs,
+.agent-row.done    .agent-logs{max-height:120px;overflow-y:auto;padding-bottom:8px}
+.agent-logs::-webkit-scrollbar{width:3px}
+.agent-logs::-webkit-scrollbar-thumb{background:var(--border2)}
+.log-item{font-size:10px;color:var(--muted);padding:2px 0;padding-left:8px;border-left:1px solid var(--border2);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log-item.tool{color:var(--yellow)}
+.log-item.ok{color:var(--green)}
+
+/* 底部统计 */
+.stats-bar{border-top:1px solid var(--border);padding:10px 14px;display:flex;gap:16px}
+.stat{display:flex;flex-direction:column;gap:2px}
+.stat-val{font-size:14px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
+.stat-key{font-size:10px;color:var(--muted);letter-spacing:.04em}
+
+/* ── 右侧主区 ── */
+.panel-right{display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
+
+/* 空状态 */
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:var(--muted)}
+.empty-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px}
+.empty-card{background:var(--s1);border:1px solid var(--border);border-radius:var(--r);padding:12px;text-align:center;font-size:11px}
+.empty-card .ec-icon{font-size:20px;margin-bottom:4px}
+.empty-card .ec-label{color:var(--muted)}
+.empty-title{font-size:18px;font-weight:700;color:var(--text);letter-spacing:-.01em}
+.empty-sub{font-size:12px;color:var(--muted)}
+
+/* 报告区 */
+.report-wrap{flex:1;display:none;flex-direction:column;overflow:hidden}
+.report-wrap.visible{display:flex}
+
+/* 评级卡 */
+.rating-card{margin:16px 20px 0;background:var(--s1);border:1px solid var(--border);border-radius:var(--r);padding:14px 18px;display:flex;align-items:center;gap:20px;flex-shrink:0}
+.rc-item{display:flex;flex-direction:column;gap:3px}
+.rc-key{font-size:10px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.rc-val{font-size:18px;font-weight:700;color:var(--text)}
+.rc-divider{width:1px;height:32px;background:var(--border)}
+.advice-badge{padding:4px 14px;border-radius:20px;font-size:12px;font-weight:700;letter-spacing:.04em}
+.adv-buy  {background:rgba(63,185,80,.15);color:var(--green);border:1px solid rgba(63,185,80,.3)}
+.adv-watch{background:rgba(227,179,65,.12);color:var(--yellow);border:1px solid rgba(227,179,65,.25)}
+.adv-avoid{background:rgba(248,81,73,.12);color:var(--red);border:1px solid rgba(248,81,73,.25)}
+.rc-time{margin-left:auto;font-size:10px;color:var(--muted)}
+
+/* 风险评分条 */
+.risk-meters{display:flex;gap:12px;align-items:center;margin-left:12px}
+.risk-meter{display:flex;flex-direction:column;align-items:center;gap:4px}
+.rm-label{font-size:9px;color:var(--muted);letter-spacing:.05em}
+.rm-bar{width:48px;height:4px;background:var(--s3);border-radius:2px;overflow:hidden}
+.rm-fill{height:100%;border-radius:2px;transition:width .6s ease}
+
+/* Tab 导航 */
+.tab-nav{display:flex;padding:0 20px;border-bottom:1px solid var(--border);gap:2px;flex-shrink:0;background:var(--s1)}
+.tab-btn{background:none;border:none;color:var(--muted);padding:10px 14px;font-size:11px;font-family:inherit;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;letter-spacing:.04em;transition:color .15s;margin-bottom:-1px;text-transform:uppercase}
+.tab-btn:hover{color:var(--text)}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* 报告内容 */
+.tab-panels{flex:1;overflow:hidden}
+.tab-panel{display:none;height:100%;overflow-y:auto;padding:20px}
+.tab-panel::-webkit-scrollbar{width:5px}
+.tab-panel::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
+.tab-panel.active{display:block}
+
+.report-body h2{font-size:14px;font-weight:700;margin:20px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border);color:var(--text);letter-spacing:.02em}
+.report-body h2:first-child{margin-top:0}
+.report-body h3{font-size:12px;font-weight:700;margin:14px 0 6px;color:var(--accent);letter-spacing:.04em;text-transform:uppercase}
+.report-body p{margin-bottom:8px;color:var(--text);line-height:1.7;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px}
+.report-body ul,.report-body ol{padding-left:18px;margin-bottom:8px}
+.report-body li{margin-bottom:3px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px}
+.report-body strong{color:#fff;font-weight:700}
+.report-body em{color:var(--yellow)}
+.report-body hr{border:none;border-top:1px solid var(--border);margin:16px 0}
+.report-body table{width:100%;border-collapse:collapse;margin:10px 0;font-size:12px}
+.report-body th{background:var(--s2);padding:7px 10px;text-align:left;border:1px solid var(--border);font-weight:700;color:var(--text);letter-spacing:.03em}
+.report-body td{padding:7px 10px;border:1px solid var(--border);color:var(--text)}
+.report-body tr:hover td{background:var(--s1)}
+.report-body td:nth-child(2){color:var(--yellow)}
+
+/* 状态栏 */
+.status-bar{height:28px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;padding:0 14px;flex-shrink:0;background:var(--s1)}
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--muted);flex-shrink:0}
+.status-dot.running{background:var(--accent);animation:pulse 1s infinite}
+.status-dot.done{background:var(--green)}
+.status-dot.error{background:var(--red)}
+.status-text{font-size:11px;color:var(--muted);flex:1}
+.status-total{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.fade-in{animation:fadeIn .3s ease}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark">📈</div>
+    <span class="logo-text">StockAgent</span>
+    <span class="logo-sub">/ Multi-Agent 投研系统</span>
+  </div>
+  <div class="header-mid">
+    <div class="nav-pill"><span></span>系统在线</div>
+  </div>
+  <div class="header-right">
+    <span class="time-display" id="clock">--:--:--</span>
+  </div>
+</header>
+
+<div class="workspace">
+
+  <!-- 左侧面板 -->
+  <aside class="panel-left">
+    <div class="input-block">
+      <div class="block-label">研究目标</div>
+      <div class="field">
+        <label>STOCK CODE</label>
+        <input id="inp-code" type="text" placeholder="输入股票代码，如 600226" maxlength="6"
+               oninput="onCodeInput(this.value)" onkeydown="if(event.key==='Enter')startResearch()">
+      </div>
+      <div id="stock-preview" style="margin-bottom:10px;padding:8px 10px;background:var(--s3);border-radius:var(--r);font-size:12px;display:none">
+        <span style="color:var(--muted)">股票名称</span>
+        <span id="preview-name" style="color:var(--text);font-weight:700;margin-left:8px"></span>
+        <span id="preview-industry" style="color:var(--muted);font-size:10px;display:block;margin-top:2px"></span>
+      </div>
+      <div id="code-error" style="color:var(--red);font-size:11px;margin-bottom:8px;display:none">未找到该股票代码</div>
+      <button class="btn-run" id="btn-run" onclick="startResearch()">
+        <span class="run-icon">▶</span> 启动分析
+      </button>
+    </div>
+
+    <div class="agents-block">
+      <div class="block-label">Agent 执行状态</div>
+
+      <!-- Planner -->
+      <div class="agent-row" id="ar-planner">
+        <div class="agent-head">
+          <div class="agent-icon">📋</div>
+          <div class="agent-info">
+            <div class="agent-name">PLANNER</div>
+            <div class="agent-sub">任务规划 · 目标拆解</div>
+          </div>
+          <div class="agent-meta">
+            <span class="agent-status" id="as-planner">IDLE</span>
+            <span class="agent-timer" id="at-planner">--</span>
+          </div>
+        </div>
+        <div class="agent-logs" id="al-planner"></div>
+      </div>
+
+      <!-- Technical -->
+      <div class="agent-row" id="ar-technical">
+        <div class="agent-head">
+          <div class="agent-icon">📊</div>
+          <div class="agent-info">
+            <div class="agent-name">TECHNICAL ANALYST</div>
+            <div class="agent-sub">均线 · 换手率 · 量化选股</div>
+          </div>
+          <div class="agent-meta">
+            <span class="agent-status" id="as-technical">IDLE</span>
+            <span class="agent-timer" id="at-technical">--</span>
+          </div>
+        </div>
+        <div class="agent-logs" id="al-technical"></div>
+      </div>
+
+      <!-- News -->
+      <div class="agent-row" id="ar-news">
+        <div class="agent-head">
+          <div class="agent-icon">📰</div>
+          <div class="agent-info">
+            <div class="agent-name">NEWS ANALYST</div>
+            <div class="agent-sub">舆情 · 情感评分 · 政策</div>
+          </div>
+          <div class="agent-meta">
+            <span class="agent-status" id="as-news">IDLE</span>
+            <span class="agent-timer" id="at-news">--</span>
+          </div>
+        </div>
+        <div class="agent-logs" id="al-news"></div>
+      </div>
+
+      <!-- Sector -->
+      <div class="agent-row" id="ar-sector">
+        <div class="agent-head">
+          <div class="agent-icon">🏭</div>
+          <div class="agent-info">
+            <div class="agent-name">SECTOR ANALYST</div>
+            <div class="agent-sub">板块强度 · 资金流向</div>
+          </div>
+          <div class="agent-meta">
+            <span class="agent-status" id="as-sector">IDLE</span>
+            <span class="agent-timer" id="at-sector">--</span>
+          </div>
+        </div>
+        <div class="agent-logs" id="al-sector"></div>
+      </div>
+
+      <!-- Supervisor -->
+      <div class="agent-row" id="ar-supervisor">
+        <div class="agent-head">
+          <div class="agent-icon">🎯</div>
+          <div class="agent-info">
+            <div class="agent-name">SUPERVISOR</div>
+            <div class="agent-sub">基金经理 · 综合研判</div>
+          </div>
+          <div class="agent-meta">
+            <span class="agent-status" id="as-supervisor">IDLE</span>
+            <span class="agent-timer" id="at-supervisor">--</span>
+          </div>
+        </div>
+        <div class="agent-logs" id="al-supervisor"></div>
+      </div>
+
+      <!-- Risk -->
+      <div class="agent-row" id="ar-risk">
+        <div class="agent-head">
+          <div class="agent-icon">🛡️</div>
+          <div class="agent-info">
+            <div class="agent-name">RISK MANAGER</div>
+            <div class="agent-sub">风控审核 · 仓位建议</div>
+          </div>
+          <div class="agent-meta">
+            <span class="agent-status" id="as-risk">IDLE</span>
+            <span class="agent-timer" id="at-risk">--</span>
+          </div>
+        </div>
+        <div class="agent-logs" id="al-risk"></div>
+      </div>
+    </div>
+
+    <div class="stats-bar">
+      <div class="stat"><span class="stat-val" id="st-total">0</span><span class="stat-key">AGENTS</span></div>
+      <div class="stat"><span class="stat-val" id="st-done">0</span><span class="stat-key">DONE</span></div>
+      <div class="stat"><span class="stat-val" id="st-elapsed">0s</span><span class="stat-key">ELAPSED</span></div>
+      <div class="stat"><span class="stat-val" id="st-tools">0</span><span class="stat-key">TOOL CALLS</span></div>
+    </div>
+  </aside>
+
+  <!-- 右侧主区 -->
+  <main class="panel-right">
+
+    <!-- 空状态 -->
+    <div class="empty" id="empty">
+      <div class="empty-grid">
+        <div class="empty-card"><div class="ec-icon">📊</div><div class="ec-label">技术分析</div></div>
+        <div class="empty-card"><div class="ec-icon">📰</div><div class="ec-label">新闻舆情</div></div>
+        <div class="empty-card"><div class="ec-icon">🏭</div><div class="ec-label">板块研究</div></div>
+      </div>
+      <div class="empty-title">输入股票，启动六大 Agent 协同分析</div>
+      <div class="empty-sub">Planner · 技术 · 新闻 · 板块 · 基金经理 · 风控</div>
+    </div>
+
+    <!-- 报告区 -->
+    <div class="report-wrap" id="report-wrap">
+      <!-- 评级卡 -->
+      <div class="rating-card" id="rating-card" style="display:none">
+        <div class="rc-item">
+          <span class="rc-key">综合评级</span>
+          <span class="rc-val" id="rc-stars">-</span>
+        </div>
+        <div class="rc-divider"></div>
+        <div class="rc-item">
+          <span class="rc-key">操作建议</span>
+          <span class="advice-badge" id="rc-advice">-</span>
+        </div>
+        <div class="rc-divider"></div>
+        <div class="rc-item">
+          <span class="rc-key">风险维度</span>
+          <div class="risk-meters">
+            <div class="risk-meter">
+              <div class="rm-bar"><div class="rm-fill" id="rm-market" style="width:0%;background:var(--yellow)"></div></div>
+              <span class="rm-label">市场</span>
+            </div>
+            <div class="risk-meter">
+              <div class="rm-bar"><div class="rm-fill" id="rm-liquidity" style="width:0%;background:var(--accent)"></div></div>
+              <span class="rm-label">流动</span>
+            </div>
+            <div class="risk-meter">
+              <div class="rm-bar"><div class="rm-fill" id="rm-sentiment" style="width:0%;background:var(--purple)"></div></div>
+              <span class="rm-label">情绪</span>
+            </div>
+          </div>
+        </div>
+        <span class="rc-time" id="rc-time"></span>
+      </div>
+
+      <!-- Tab 导航 -->
+      <div class="tab-nav">
+        <button class="tab-btn active" onclick="switchTab('final',this)">综合报告</button>
+        <button class="tab-btn" onclick="switchTab('tech',this)">技术分析</button>
+        <button class="tab-btn" onclick="switchTab('news',this)">新闻舆情</button>
+        <button class="tab-btn" onclick="switchTab('sector',this)">板块分析</button>
+        <button class="tab-btn" onclick="switchTab('risk',this)">风控报告</button>
+        <button class="tab-btn" onclick="switchTab('plan',this)">任务规划</button>
+      </div>
+
+      <div class="tab-panels">
+        <div class="tab-panel active" id="tp-final"><div class="report-body" id="rb-final"></div></div>
+        <div class="tab-panel" id="tp-tech"><div class="report-body" id="rb-tech"></div></div>
+        <div class="tab-panel" id="tp-news"><div class="report-body" id="rb-news"></div></div>
+        <div class="tab-panel" id="tp-sector"><div class="report-body" id="rb-sector"></div></div>
+        <div class="tab-panel" id="tp-risk"><div class="report-body" id="rb-risk"></div></div>
+        <div class="tab-panel" id="tp-plan"><div class="report-body" id="rb-plan"></div></div>
+      </div>
+    </div>
+
+    <div class="status-bar">
+      <div class="status-dot" id="sdot"></div>
+      <span class="status-text" id="stext">就绪 — 输入股票名称开始分析</span>
+      <span class="status-total" id="stotal"></span>
+    </div>
+  </main>
+</div>
+
+<script>
+// ── 时钟 ──────────────────────────────────────────────────────
+setInterval(() => {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('zh-CN',{hour12:false});
+}, 1000);
+
+// ── 状态追踪 ─────────────────────────────────────────────────
+const agentStart = {};
+const agentTimers = {};
+let globalStart = 0;
+let globalTimer = null;
+let toolCount = 0;
+let doneCount = 0;
+const AGENTS = ['planner','technical','news','sector','supervisor','risk'];
+
+function startAgentTimer(agent) {
+  agentStart[agent] = Date.now();
+  agentTimers[agent] = setInterval(() => {
+    const s = ((Date.now() - agentStart[agent]) / 1000).toFixed(1);
+    const el = document.getElementById(`at-${agent}`);
+    if (el) el.textContent = `${s}s`;
+  }, 100);
+}
+
+function stopAgentTimer(agent) {
+  clearInterval(agentTimers[agent]);
+  const s = ((Date.now() - agentStart[agent]) / 1000).toFixed(1);
+  const el = document.getElementById(`at-${agent}`);
+  if (el) el.textContent = `${s}s`;
+}
+
+function startGlobalTimer() {
+  globalStart = Date.now();
+  globalTimer = setInterval(() => {
+    const s = Math.floor((Date.now() - globalStart) / 1000);
+    document.getElementById('st-elapsed').textContent = `${s}s`;
+  }, 500);
+}
+
+function stopGlobalTimer() {
+  clearInterval(globalTimer);
+}
+
+// ── Agent 状态设置 ────────────────────────────────────────────
+function setAgent(agent, status, msg) {
+  const row   = document.getElementById(`ar-${agent}`);
+  const badge = document.getElementById(`as-${agent}`);
+  if (!row) return;
+
+  row.className = `agent-row ${status}`;
+  badge.textContent = status === 'running' ? 'RUN' : status === 'done' ? 'DONE' : 'IDLE';
+
+  if (status === 'running') startAgentTimer(agent);
+  if (status === 'done') {
+    stopAgentTimer(agent);
+    doneCount++;
+    document.getElementById('st-done').textContent = doneCount;
+  }
+
+  if (msg) appendLog(agent, msg, 'ok');
+}
+
+function appendLog(agent, msg, type='') {
+  const logs = document.getElementById(`al-${agent}`);
+  if (!logs) return;
+  const d = document.createElement('div');
+  d.className = `log-item ${type}`;
+  d.textContent = msg;
+  logs.appendChild(d);
+  logs.scrollTop = logs.scrollHeight;
+}
+
+// ── Tab 切换 ──────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById(`tp-${name}`).classList.add('active');
+}
+
+// ── 简易 Markdown 渲染 ────────────────────────────────────────
+function renderMd(text) {
+  if (!text) return '<p style="color:var(--muted)">暂无内容</p>';
+  const esc = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return esc
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^---$/gm, '<hr>')
+    .replace(/^\| (.+) \|$/gm, (_,r) => '<tr>'+r.split(' | ').map(c=>`<td>${c}</td>`).join('')+'</tr>')
+    .replace(/(<tr>[\s\S]*?<\/tr>\n?)+/g, m => `<table><thead></thead><tbody>${m}</tbody></table>`)
+    .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>[\s\S]*?<\/li>\n?)+/g, m => `<ul>${m}</ul>`)
+    .replace(/\n\n+/g, '</p><p>')
+    .replace(/^(?!<[htupol])(.+)$/gm, '$1')
+    .trim();
+}
+
+// ── 解析评级 ─────────────────────────────────────────────────
+function parseRating(text) {
+  const stars  = (text.match(/综合评级[：:]\s*(⭐+)/)||[])[1] || '';
+  const advice = (text.match(/操作建议[：:]\s*(买入|观望|回避)/)||[])[1] || '';
+  const risk   = (text.match(/风险等级[：:]\s*[🟢🟡🔴⛔]+(\S+)/)||[])[1] || '';
+  return { stars, advice, risk };
+}
+
+function renderRating(stars, advice, risk) {
+  document.getElementById('rating-card').style.display = 'flex';
+  document.getElementById('rc-stars').textContent = stars || '-';
+  document.getElementById('rc-time').textContent =
+    new Date().toLocaleString('zh-CN',{hour12:false});
+
+  const tag = document.getElementById('rc-advice');
+  tag.textContent = advice || '-';
+  tag.className = 'advice-badge ' +
+    (advice==='买入'?'adv-buy':advice==='观望'?'adv-watch':advice==='回避'?'adv-avoid':'');
+
+  // 风险条：根据等级设置宽度
+  const riskLevel = risk.includes('高')||risk.includes('极高') ? 80
+                  : risk.includes('中') ? 50 : 25;
+  document.getElementById('rm-market').style.width    = riskLevel + '%';
+  document.getElementById('rm-liquidity').style.width = (riskLevel * 0.7) + '%';
+  document.getElementById('rm-sentiment').style.width = (riskLevel * 0.85) + '%';
+}
+
+// ── 重置 ─────────────────────────────────────────────────────
+function resetUI() {
+  doneCount = 0; toolCount = 0;
+  AGENTS.forEach(a => {
+    const row = document.getElementById(`ar-${a}`);
+    const badge = document.getElementById(`as-${a}`);
+    const logs = document.getElementById(`al-${a}`);
+    const timer = document.getElementById(`at-${a}`);
+    row.className = 'agent-row';
+    badge.textContent = 'IDLE';
+    logs.innerHTML = '';
+    timer.textContent = '--';
+    clearInterval(agentTimers[a]);
+  });
+  document.getElementById('st-done').textContent = '0';
+  document.getElementById('st-tools').textContent = '0';
+  document.getElementById('st-elapsed').textContent = '0s';
+  document.getElementById('st-total').textContent = AGENTS.length;
+  document.getElementById('empty').style.display = 'flex';
+  document.getElementById('report-wrap').classList.remove('visible');
+  document.getElementById('rating-card').style.display = 'none';
+}
+
+// ── 主流程 ───────────────────────────────────────────────────
+// 实时查询股票名称
+let lookupTimer = null;
+function onCodeInput(val) {
+  clearTimeout(lookupTimer);
+  const preview = document.getElementById('stock-preview');
+  const err     = document.getElementById('code-error');
+  preview.style.display = 'none';
+  err.style.display     = 'none';
+  if (val.length < 6) return;
+  lookupTimer = setTimeout(async () => {
+    try {
+      const res  = await fetch(`/api/lookup/${val}`);
+      const data = await res.json();
+      if (data.found) {
+        document.getElementById('preview-name').textContent = data.name;
+        document.getElementById('preview-industry').textContent = data.industry;
+        preview.style.display = 'block';
+        err.style.display     = 'none';
+      } else {
+        preview.style.display = 'none';
+        err.style.display     = 'block';
+      }
+    } catch(e) {}
+  }, 300);
+}
+
+function startResearch() {
+  const code = document.getElementById('inp-code').value.trim();
+  if (!code) { alert('请输入股票代码'); return; }
+
+  const previewName = document.getElementById('preview-name').textContent;
+  const displayName = previewName || code;
+
+  resetUI();
+  document.getElementById('btn-run').disabled = true;
+  document.getElementById('sdot').className = 'status-dot running';
+  document.getElementById('stext').textContent = `正在分析 ${displayName}(${code})...`;
+  startGlobalTimer();
+  fetchSSE(code);
+}
+
+async function fetchSSE(code) {
+  try {
+    const resp = await fetch('/api/research', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({stock_code: code})
+    });
+
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream: true});
+      const parts = buf.split('\n\n');
+      buf = parts.pop();
+      for (const part of parts) {
+        const evtLine  = part.split('\n').find(l => l.startsWith('event:'));
+        const dataLine = part.split('\n').find(l => l.startsWith('data:'));
+        if (!dataLine) continue;
+        const type = evtLine ? evtLine.slice(6).trim() : 'message';
+        let data;
+        try {
+          data = JSON.parse(dataLine.slice(5).trim());
+        } catch(e) {
+          if (type === 'report') {
+            console.error('报告 JSON 解析失败:', e.message, dataLine.slice(5,200));
+          }
+          continue;
+        }
+        handleEvent(type, data);
+      }
+    }
+  } catch(e) {
+    document.getElementById('sdot').className = 'status-dot error';
+    document.getElementById('stext').textContent = '连接失败：' + e.message;
+    document.getElementById('btn-run').disabled = false;
+    stopGlobalTimer();
+  }
+}
+
+function handleEvent(type, data) {
+  if (type === 'progress') {
+    const {agent, status, message} = data;
+    setAgent(agent, status, message);
+    document.getElementById('stext').textContent = message || '';
+
+  } else if (type === 'tool_call') {
+    appendLog(data.agent, data.message, 'tool');
+    toolCount++;
+    document.getElementById('st-tools').textContent = toolCount;
+
+  } else if (type === 'stock_info') {
+    // 服务端确认的股票信息
+    document.getElementById('stext').textContent = `正在分析 ${data.stock_name}(${data.stock_code})...`;
+
+  } else if (type === 'report_meta') {
+    document.getElementById('empty').style.display = 'none';
+    document.getElementById('report-wrap').classList.add('visible');
+
+  } else if (type === 'report_final_report') {
+    document.getElementById('rb-final').innerHTML = renderMd(data.content);
+    window._finalReport = data.content;
+
+  } else if (type === 'report_technical_report') {
+    document.getElementById('rb-tech').innerHTML = renderMd(data.content);
+
+  } else if (type === 'report_news_report') {
+    document.getElementById('rb-news').innerHTML = renderMd(data.content);
+
+  } else if (type === 'report_sector_report') {
+    document.getElementById('rb-sector').innerHTML = renderMd(data.content);
+
+  } else if (type === 'report_risk_report') {
+    document.getElementById('rb-risk').innerHTML = renderMd(data.content);
+    window._riskReport = data.content;
+
+  } else if (type === 'report_task_plan') {
+    document.getElementById('rb-plan').innerHTML = renderMd(data.content);
+
+  } else if (type === 'report_done') {
+    stopGlobalTimer();
+    const fr = window._finalReport || '';
+    const rr = window._riskReport  || '';
+    const {stars, advice, risk} = parseRating(fr + rr);
+    renderRating(stars, advice, risk);
+    const total = ((Date.now() - globalStart)/1000).toFixed(1);
+    document.getElementById('stotal').textContent = `总耗时 ${total}s`;
+
+  } else if (type === 'error') {
+    stopGlobalTimer();
+    document.getElementById('sdot').className = 'status-dot error';
+    document.getElementById('stext').textContent = '分析出错：' + data.message;
+    document.getElementById('btn-run').disabled = false;
+
+  } else if (type === 'reflection') {
+    // 复盘报告跑完，追加到综合报告末尾
+    const finalEl = document.getElementById('rb-final');
+    const divider = '<hr><div style="background:rgba(163,113,247,.08);border:1px solid rgba(163,113,247,.2);border-radius:6px;padding:16px;margin-top:16px">' +
+      '<div style="color:#a371f7;font-size:11px;font-weight:700;letter-spacing:.08em;margin-bottom:10px">🔍 REFLECTION ENGINE · 复盘分析</div>' +
+      renderMd(data.content) + '</div>';
+    finalEl.innerHTML += divider;
+    const correct = data.was_correct;
+    document.getElementById('stext').textContent = '复盘完成 — 预测' + (correct ? '正确 ✓' : '存在偏差，已记录');
+
+  } else if (type === 'done') {
+    document.getElementById('sdot').className = 'status-dot done';
+    document.getElementById('stext').textContent = '分析完成 ✓';
+    document.getElementById('btn-run').disabled = false;
+  }
+}
+
+document.getElementById('inp-stock').addEventListener('keydown', e => {
+  if (e.key === 'Enter') startResearch();
+});
+</script>
+</body>
+</html>
