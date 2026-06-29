@@ -199,6 +199,9 @@ def deep_analysis_node(state: ScanState, config: RunnableConfig) -> dict:
                 "industry": industry,
                 "reason": stock.get("reason", ""),
                 "final_report": result.get("final_report", ""),
+                "technical_report": result.get("technical_report", ""),
+                "news_report": result.get("news_report", ""),
+                "sector_report": result.get("sector_report", ""),
                 "risk_report": result.get("risk_report", ""),
             })
 

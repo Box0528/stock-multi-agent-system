@@ -775,6 +775,29 @@ function handleScanEvent(type, data) {
     document.getElementById('report-wrap').classList.add('visible');
     const overview = data.market_overview || '无数据';
     document.getElementById('rb-final').innerHTML = renderMd(overview);
+
+    // 把各股票的详细报告填入对应 tab
+    try {
+      const reports = JSON.parse(data.analysis_reports || '[]');
+      if (reports.length > 0) {
+        let techHtml = '<h2>各股票技术分析汇总</h2>';
+        let newsHtml = '<h2>各股票新闻舆情汇总</h2>';
+        let sectorHtml = '<h2>各股票板块分析汇总</h2>';
+        let riskHtml = '<h2>各股票风控评估汇总</h2>';
+        for (const r of reports) {
+          const header = `<h3>${r.name}（${r.code}）— ${r.industry}</h3><p style="color:var(--muted)">精选理由：${r.reason}</p>`;
+          techHtml += header + renderMd(r.technical_report || '暂无') + '<hr>';
+          newsHtml += header + renderMd(r.news_report || '暂无') + '<hr>';
+          sectorHtml += header + renderMd(r.sector_report || '暂无') + '<hr>';
+          riskHtml += header + renderMd(r.risk_report || '暂无') + '<hr>';
+        }
+        document.getElementById('rb-tech').innerHTML = techHtml;
+        document.getElementById('rb-news').innerHTML = newsHtml;
+        document.getElementById('rb-sector').innerHTML = sectorHtml;
+        document.getElementById('rb-risk').innerHTML = riskHtml;
+      }
+    } catch(e) { console.error('解析扫描报告失败', e); }
+
     // 切到综合报告 tab
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -783,6 +806,7 @@ function handleScanEvent(type, data) {
     // 隐藏评级卡（扫描模式不需要单股评级）
     const ratingCard = document.querySelector('.rating-card');
     if (ratingCard) ratingCard.style.display = 'none';
+    stopGlobalTimer();
     const total = ((Date.now() - globalStart)/1000).toFixed(1);
     document.getElementById('stotal').textContent = `总耗时 ${total}s`;
   } else if (type === 'cost_summary') {
