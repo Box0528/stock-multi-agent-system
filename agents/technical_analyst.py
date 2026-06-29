@@ -7,6 +7,7 @@ from config import get_llm
 from tools.stock_data import run_stock_screener, get_stock_detail
 from core.event_bus import ConsoleEventBus
 from core.cost_tracker import CostTracker
+from core.cognitive import run_reasoning, parse_self_evaluation, strip_self_evaluation, SELF_EVAL_SUFFIX, AgentOutput
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ SYSTEM_PROMPT = """你是一位专业的股票技术分析师。
 - 先给出整体市场技术面判断
 - 再列出重点关注股票（不超过5只）
 - 每只股票给出技术面理由
-"""
+""" + SELF_EVAL_SUFFIX
 
 TOOL_MAP = {
     "run_stock_screener": run_stock_screener,
@@ -33,15 +34,39 @@ TOOL_MAP = {
 }
 
 
-def run_technical_analyst(user_query: str, bus=None, tracker: CostTracker = None) -> str:
+def run_technical_analyst(
+    user_query: str,
+    bus=None,
+    tracker: CostTracker = None,
+    lessons: str = "",
+    stock_name: str = "",
+) -> AgentOutput:
     if bus is None:
         bus = ConsoleEventBus()
 
     llm = get_llm(temperature=0.1)
-    llm_with_tools = llm.bind_tools([run_stock_screener, get_stock_detail])
 
+    # ── 推理阶段 ──
+    reasoning = ""
+    if stock_name:
+        reasoning = run_reasoning(
+            llm=get_llm(temperature=0.05),
+            agent_name="technical",
+            stock_name=stock_name,
+            context=user_query,
+            lessons=lessons,
+            bus=bus,
+            tracker=tracker,
+        )
+
+    # ── 行动阶段 ──
+    system_content = SYSTEM_PROMPT
+    if lessons:
+        system_content += f"\n\n## 历史教训（必须参考调整策略）\n{lessons}"
+
+    llm_with_tools = llm.bind_tools([run_stock_screener, get_stock_detail])
     messages = [
-        SystemMessage(content=SYSTEM_PROMPT),
+        SystemMessage(content=system_content),
         HumanMessage(content=user_query),
     ]
 
@@ -57,7 +82,15 @@ def run_technical_analyst(user_query: str, bus=None, tracker: CostTracker = None
             )
 
         if not response.tool_calls:
-            return response.content
+            raw_report = response.content
+            confidence, details = parse_self_evaluation(raw_report)
+            clean_report = strip_self_evaluation(raw_report)
+            return AgentOutput(
+                report=clean_report,
+                reasoning_trace=reasoning,
+                confidence=confidence,
+                confidence_details=details,
+            )
 
         for tool_call in response.tool_calls:
             tool_name = tool_call["name"]
@@ -77,4 +110,4 @@ def run_technical_analyst(user_query: str, bus=None, tracker: CostTracker = None
                 tool_call_id=tool_call["id"]
             ))
 
-    return "分析超过最大轮次，请重试。"
+    return AgentOutput(report="分析超过最大轮次，请重试。", reasoning_trace=reasoning, confidence=0.1)

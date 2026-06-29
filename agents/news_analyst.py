@@ -8,6 +8,7 @@ from config import get_llm
 from tools.search import search_stock_news, search_stock_news_today
 from core.event_bus import ConsoleEventBus
 from core.cost_tracker import CostTracker
+from core.cognitive import run_reasoning, parse_self_evaluation, strip_self_evaluation, SELF_EVAL_SUFFIX, AgentOutput
 
 logger = logging.getLogger(__name__)
 
@@ -63,22 +64,47 @@ def get_system_prompt() -> str:
 
 ### 综合结论
 （2-3句话，明确说明短期和中期判断）
-"""
+""" + SELF_EVAL_SUFFIX
 
 
-def run_news_analyst(stock_name: str, industry: str = "", bus=None, tracker: CostTracker = None) -> str:
+def run_news_analyst(
+    stock_name: str,
+    industry: str = "",
+    bus=None,
+    tracker: CostTracker = None,
+    lessons: str = "",
+) -> AgentOutput:
     if bus is None:
         bus = ConsoleEventBus()
 
+    llm = get_llm(temperature=0.1)
+
+    # ── 推理阶段 ──
+    context = f"分析股票【{stock_name}】的新闻舆情"
+    if industry:
+        context += f"，属于【{industry}】行业"
+    reasoning = run_reasoning(
+        llm=get_llm(temperature=0.05),
+        agent_name="news",
+        stock_name=stock_name,
+        context=context,
+        lessons=lessons,
+        bus=bus,
+        tracker=tracker,
+    )
+
+    # ── 行动阶段 ──
     query = f"请分析股票【{stock_name}】的最新新闻舆情"
     if industry:
         query += f"，该股票属于【{industry}】行业"
 
-    llm = get_llm(temperature=0.1)
-    llm_with_tools = llm.bind_tools([search_stock_news, search_stock_news_today])
+    system_content = get_system_prompt()
+    if lessons:
+        system_content += f"\n\n## 历史教训（必须参考调整策略）\n{lessons}"
 
+    llm_with_tools = llm.bind_tools([search_stock_news, search_stock_news_today])
     messages = [
-        SystemMessage(content=get_system_prompt()),
+        SystemMessage(content=system_content),
         HumanMessage(content=query),
     ]
 
@@ -94,7 +120,15 @@ def run_news_analyst(stock_name: str, industry: str = "", bus=None, tracker: Cos
             )
 
         if not response.tool_calls:
-            return response.content
+            raw_report = response.content
+            confidence, details = parse_self_evaluation(raw_report)
+            clean_report = strip_self_evaluation(raw_report)
+            return AgentOutput(
+                report=clean_report,
+                reasoning_trace=reasoning,
+                confidence=confidence,
+                confidence_details=details,
+            )
 
         for tool_call in response.tool_calls:
             tool_name = tool_call["name"]
@@ -116,4 +150,4 @@ def run_news_analyst(stock_name: str, industry: str = "", bus=None, tracker: Cos
                 tool_call_id=tool_call["id"]
             ))
 
-    return "分析超过最大轮次，请重试。"
+    return AgentOutput(report="分析超过最大轮次，请重试。", reasoning_trace=reasoning, confidence=0.1)

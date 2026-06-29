@@ -50,6 +50,11 @@ def run_research(stock_name: str, industry: str = "") -> str:
         "memory_context":   "",
         "has_history":      False,
         "last_advice":      "",
+        "agent_lessons":    "",
+        "technical_confidence": 0.7,
+        "news_confidence":      0.7,
+        "sector_confidence":    0.7,
+        "reasoning_traces":     "",
     }
 
     config = {"configurable": {"event_bus": bus, "cost_tracker": tracker}}

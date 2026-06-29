@@ -3,9 +3,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import re
 import json
+import logging
 import chromadb
 from datetime import datetime
 from chromadb.utils import embedding_functions
+
+logger = logging.getLogger(__name__)
 
 # ── 初始化 ChromaDB ───────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -277,15 +280,100 @@ def load_all_memory(stock_name: str, industry: str) -> dict:
     pred_records    = get_prediction_history(stock_name)
     sector_records  = get_sector_trend(industry)
     risk_records    = get_risk_history(stock_name)
+    lessons         = load_agent_lessons(stock_name, industry)
     return {
         "has_history":       len(pred_records) > 0,
         "prediction_text":   format_prediction_history(pred_records),
         "sector_trend_text": format_sector_trend(industry, sector_records),
         "risk_history_text": format_risk_history(risk_records),
+        "agent_lessons":     lessons,
         "pred_count":        len(pred_records),
         "last_advice":       pred_records[0]["advice"] if pred_records else "",
         "last_date":         pred_records[0]["date"]   if pred_records else "",
     }
+
+
+# ════════════════════════════════════════════════════════════════
+# 第四层：Agent 行为教训（复盘闭环的关键）
+# Reflection 输出的行为修正建议存入此层，
+# 下次分析时自动加载到对应 agent 的 prompt 中。
+# ════════════════════════════════════════════════════════════════
+
+def save_agent_lessons(
+    stock_name: str,
+    industry: str,
+    lessons: dict[str, str],
+) -> None:
+    """保存复盘产生的各 agent 行为修正建议。
+
+    lessons 格式: {"technical": "降低短期均线权重", "news": "增加政策搜索", ...}
+    """
+    col = _get_collection("agent_lessons")
+    now = datetime.now()
+
+    for agent_name, lesson_text in lessons.items():
+        if not lesson_text:
+            continue
+        doc_id = f"{stock_name}_{agent_name}_{now.strftime('%Y%m%d_%H%M%S')}"
+        meta = {
+            "stock_name": stock_name,
+            "industry": industry,
+            "agent_name": agent_name,
+            "date": now.strftime("%Y-%m-%d"),
+            "timestamp": now.isoformat(),
+        }
+        col.add(documents=[lesson_text], metadatas=[meta], ids=[doc_id])
+
+    logger.info("Agent 教训已保存：%s, %d 条", stock_name, len(lessons))
+
+
+def load_agent_lessons(stock_name: str, industry: str) -> dict[str, str]:
+    """加载与当前股票/行业相关的 agent 行为教训。
+
+    返回 {"technical": "...", "news": "...", "sector": "...", ...}
+    优先匹配同股票的教训，其次匹配同行业的教训。
+    """
+    col = _get_collection("agent_lessons")
+    try:
+        count = col.count()
+        if count == 0:
+            return {}
+
+        lessons: dict[str, list[str]] = {}
+
+        # 先查同股票的教训
+        results = col.query(
+            query_texts=[stock_name],
+            n_results=min(10, count),
+            where={"stock_name": stock_name},
+        )
+        if results["ids"][0]:
+            for doc, meta in zip(results["documents"][0], results["metadatas"][0]):
+                agent = meta["agent_name"]
+                if agent not in lessons:
+                    lessons[agent] = []
+                lessons[agent].append(f"[{meta['date']}] {doc}")
+
+        # 再查同行业的教训（补充，不覆盖）
+        if industry:
+            results = col.query(
+                query_texts=[industry],
+                n_results=min(5, count),
+                where={"industry": industry},
+            )
+            if results["ids"][0]:
+                for doc, meta in zip(results["documents"][0], results["metadatas"][0]):
+                    agent = meta["agent_name"]
+                    if agent not in lessons:
+                        lessons[agent] = []
+                    lessons[agent].append(f"[{meta['date']}·同行业] {doc}")
+
+        # 每个 agent 只保留最近 3 条教训
+        return {agent: "\n".join(texts[-3:]) for agent, texts in lessons.items()}
+
+    except Exception as e:
+        logger.error("加载 agent 教训失败：%s", e)
+        return {}
 
 
 if __name__ == "__main__":

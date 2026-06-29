@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 def _keep_last(old: str, new: str) -> str:
     return new
 
+def _keep_last_float(old: float, new: float) -> float:
+    return new
+
 class ResearchState(TypedDict):
     messages:          Annotated[List[BaseMessage], add_messages]
     stock_name:        str
@@ -35,19 +38,12 @@ class ResearchState(TypedDict):
     memory_context:    str
     has_history:       bool
     last_advice:       str
-
-
-def _lookup_industry(stock_name: str) -> str:
-    try:
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        meta_file = os.path.join(base_dir, "meta", "stock_meta.csv")
-        meta_df = pd.read_csv(meta_file)
-        match = meta_df[meta_df["name"] == stock_name]
-        if not match.empty:
-            return match.iloc[0]["industry_name"]
-    except Exception as e:
-        logger.warning("行业查询失败：%s", e)
-    return ""
+    # 认知内核新增字段
+    agent_lessons:     str                                    # JSON 或纯文本，各agent教训
+    technical_confidence: Annotated[float, _keep_last_float]
+    news_confidence:      Annotated[float, _keep_last_float]
+    sector_confidence:    Annotated[float, _keep_last_float]
+    reasoning_traces:     str                                 # 所有推理链拼接
 
 
 # ── 节点0：Memory 加载 ────────────────────────────────────────
@@ -71,16 +67,23 @@ def memory_load_node(state: ResearchState, config: RunnableConfig) -> dict:
         else:
             bus.emit_progress("planner", "running", "🧠 首次分析，无历史记忆")
             context = ""
+
+        import json
+        lessons_dict = mem.get("agent_lessons", {})
+        lessons_str = json.dumps(lessons_dict, ensure_ascii=False) if lessons_dict else ""
+
         return {
             "memory_context": context,
             "has_history":    mem["has_history"],
             "last_advice":    mem["last_advice"],
+            "agent_lessons":  lessons_str,
             "current_step":   "memory_loaded",
         }
     except Exception as e:
         logger.error("Memory 加载失败：%s", e)
         bus.emit_progress("planner", "running", "🧠 记忆加载失败，继续分析")
-        return {"memory_context": "", "has_history": False, "last_advice": "", "current_step": "memory_loaded"}
+        return {"memory_context": "", "has_history": False, "last_advice": "",
+                "agent_lessons": "", "current_step": "memory_loaded"}
 
 
 # ── 节点1：Planner ────────────────────────────────────────────
@@ -113,29 +116,47 @@ def parallel_analysts_node(state: ResearchState, config: RunnableConfig) -> dict
     task_plan       = state["task_plan"]
     sector_industry = real_industry if real_industry else industry
 
+    # 解析 agent lessons
+    import json
+    try:
+        lessons_dict = json.loads(state.get("agent_lessons", "{}")) if state.get("agent_lessons") else {}
+    except Exception:
+        lessons_dict = {}
+
     def run_technical():
         bus.emit_progress("technical", "running", "📊 技术分析师正在分析...")
         from agents.technical_analyst import run_technical_analyst
         query = f"请分析股票【{stock_name}】的技术面，结合任务计划：{task_plan[:200]}"
-        result = run_technical_analyst(query, bus=bus, tracker=tracker)
-        bus.emit_progress("technical", "done", "✅ 技术分析完成")
-        return "technical", result
+        output = run_technical_analyst(
+            query, bus=bus, tracker=tracker,
+            lessons=lessons_dict.get("technical", ""),
+            stock_name=stock_name,
+        )
+        bus.emit_progress("technical", "done", f"✅ 技术分析完成（置信度 {output.confidence:.0%}）")
+        return "technical", output
 
     def run_news():
         bus.emit_progress("news", "running", "📰 新闻分析师正在搜索舆情...")
         from agents.news_analyst import run_news_analyst
-        result = run_news_analyst(stock_name, industry, bus=bus, tracker=tracker)
-        bus.emit_progress("news", "done", "✅ 新闻分析完成")
-        return "news", result
+        output = run_news_analyst(
+            stock_name, industry, bus=bus, tracker=tracker,
+            lessons=lessons_dict.get("news", ""),
+        )
+        bus.emit_progress("news", "done", f"✅ 新闻分析完成（置信度 {output.confidence:.0%}）")
+        return "news", output
 
     def run_sector():
         bus.emit_progress("sector", "running", "🏭 板块分析师正在分析...")
         from agents.sector_analyst import run_sector_analyst
-        result = run_sector_analyst(sector_industry, stock_name, bus=bus, tracker=tracker)
-        bus.emit_progress("sector", "done", "✅ 板块分析完成")
-        return "sector", result
+        output = run_sector_analyst(
+            sector_industry, stock_name, bus=bus, tracker=tracker,
+            lessons=lessons_dict.get("sector", ""),
+        )
+        bus.emit_progress("sector", "done", f"✅ 板块分析完成（置信度 {output.confidence:.0%}）")
+        return "sector", output
 
-    reports = {"technical": "", "news": "", "sector": ""}
+    from core.cognitive import AgentOutput
+    reports: dict[str, AgentOutput] = {}
     with ThreadPoolExecutor(max_workers=3) as executor:
         futures = {
             executor.submit(run_technical): "technical",
@@ -144,20 +165,30 @@ def parallel_analysts_node(state: ResearchState, config: RunnableConfig) -> dict
         }
         for future in as_completed(futures):
             try:
-                key, result = future.result()
-                reports[key] = result
+                key, output = future.result()
+                reports[key] = output
             except Exception as e:
                 key = futures[future]
                 logger.error("[%s] 分析出错：%s", key, e)
                 bus.emit_progress(key, "done", f"⚠️ {key} 分析出错：{e}")
-                reports[key] = f"分析出错：{e}"
+                reports[key] = AgentOutput(report=f"分析出错：{e}", confidence=0.1)
+
+    # 收集推理链
+    traces = []
+    for name in ["technical", "news", "sector"]:
+        if reports[name].reasoning_trace:
+            traces.append(f"## {name} 推理\n{reports[name].reasoning_trace}")
 
     return {
-        "technical_report": reports["technical"],
-        "news_report":      reports["news"],
-        "sector_report":    reports["sector"],
-        "current_step":     "analysts_done",
-        "messages":         [AIMessage(content="三位分析师并行分析完成")]
+        "technical_report":     reports["technical"].report,
+        "news_report":          reports["news"].report,
+        "sector_report":        reports["sector"].report,
+        "technical_confidence": reports["technical"].confidence,
+        "news_confidence":      reports["news"].confidence,
+        "sector_confidence":    reports["sector"].confidence,
+        "reasoning_traces":     "\n\n".join(traces),
+        "current_step":         "analysts_done",
+        "messages":             [AIMessage(content="三位分析师并行分析完成")]
     }
 
 
@@ -166,10 +197,16 @@ def supervisor_node(state: ResearchState, config: RunnableConfig) -> dict:
     bus = get_event_bus(config)
     tracker = get_cost_tracker(config)
 
+    import json
+    try:
+        lessons_dict = json.loads(state.get("agent_lessons", "{}")) if state.get("agent_lessons") else {}
+    except Exception:
+        lessons_dict = {}
+
     bus.emit_progress("supervisor", "running", "🎯 基金经理正在汇总三份报告...")
 
     from agents.supervisor import run_supervisor
-    summary = run_supervisor(
+    output = run_supervisor(
         stock_name=state["stock_name"],
         technical_report=state["technical_report"],
         news_report=state["news_report"],
@@ -177,11 +214,16 @@ def supervisor_node(state: ResearchState, config: RunnableConfig) -> dict:
         memory_context=state.get("memory_context", ""),
         last_advice=state.get("last_advice", ""),
         tracker=tracker,
+        technical_confidence=state.get("technical_confidence", 0.7),
+        news_confidence=state.get("news_confidence", 0.7),
+        sector_confidence=state.get("sector_confidence", 0.7),
+        lessons=lessons_dict.get("supervisor", ""),
+        bus=bus,
     )
 
-    bus.emit_progress("supervisor", "done", "✅ 综合报告汇总完成")
+    bus.emit_progress("supervisor", "done", f"✅ 综合报告汇总完成（置信度 {output.confidence:.0%}）")
     return {
-        "final_report": summary,
+        "final_report": output.report,
         "current_step": "supervisor_done",
         "messages":     [AIMessage(content="综合报告汇总完成")]
     }
@@ -192,21 +234,29 @@ def risk_node(state: ResearchState, config: RunnableConfig) -> dict:
     bus = get_event_bus(config)
     tracker = get_cost_tracker(config)
 
+    import json
+    try:
+        lessons_dict = json.loads(state.get("agent_lessons", "{}")) if state.get("agent_lessons") else {}
+    except Exception:
+        lessons_dict = {}
+
     bus.emit_progress("risk", "running", "🛡️ 风控经理正在进行风险评估...")
 
     from agents.risk_manager import run_risk_manager
-    risk_report = run_risk_manager(
+    output = run_risk_manager(
         stock_name=state["stock_name"],
         supervisor_summary=state["final_report"],
         technical_report=state["technical_report"],
         risk_history=state.get("memory_context", ""),
         tracker=tracker,
+        lessons=lessons_dict.get("risk", ""),
+        bus=bus,
     )
-    final = f"{state['final_report']}\n\n---\n\n{risk_report}"
+    final = f"{state['final_report']}\n\n---\n\n{output.report}"
 
-    bus.emit_progress("risk", "done", "✅ 风控评估完成")
+    bus.emit_progress("risk", "done", f"✅ 风控评估完成（置信度 {output.confidence:.0%}）")
     return {
-        "risk_report":  risk_report,
+        "risk_report":  output.report,
         "final_report": final,
         "current_step": "risk_done",
         "messages":     [AIMessage(content="风控评估完成")]
