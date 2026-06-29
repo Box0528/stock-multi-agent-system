@@ -17,18 +17,29 @@ from pydantic import BaseModel
 
 from core.event_bus import EventBus, AgentEvent
 from core.cost_tracker import CostTracker
+from config import get_settings
 
 logger = logging.getLogger(__name__)
 
+settings = get_settings()
 app = FastAPI(title="股票研究 Multi-Agent")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_methods=["*"], allow_headers=["*"])
 
 BASE_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 META_FILE = os.path.join(BASE_DIR, "meta", "stock_meta.csv")
 
 
+import re as _re
+
 class ResearchRequest(BaseModel):
     stock_code: str
+
+    @property
+    def validated_code(self) -> str:
+        code = self.stock_code.strip()
+        if not _re.match(r'^(sh\.?|sz\.?|SH\.?|SZ\.?)?\d{6}(\.SH|\.SZ|\.sh|\.sz)?$', code):
+            raise ValueError(f"无效的股票代码格式：{code}")
+        return code
 
 
 def lookup_by_code(stock_code: str) -> dict:
@@ -247,11 +258,15 @@ def _run_reflection_async(result: dict, stock_name: str,
 
 @app.post("/api/research")
 async def research(req: ResearchRequest):
-    stock_info = lookup_by_code(req.stock_code)
+    try:
+        code = req.validated_code
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    stock_info = lookup_by_code(code)
     if not stock_info["found"]:
-        raise HTTPException(status_code=404, detail=f"未找到股票代码 {req.stock_code}")
+        raise HTTPException(status_code=404, detail=f"未找到股票代码 {code}")
     return StreamingResponse(
-        research_stream(req.stock_code, stock_info),
+        research_stream(code, stock_info),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
