@@ -122,7 +122,7 @@ def run_sector_analyst(
         HumanMessage(content=query),
     ]
 
-    for _ in range(8):
+    for _ in range(12):
         response = llm_with_tools.invoke(messages)
         messages.append(response)
 

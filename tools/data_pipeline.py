@@ -99,8 +99,16 @@ def refresh_single_stock(stock_code: str, bus=None) -> dict:
 
     bus.emit_progress("system", "running", f"📡 正在更新 {stock_code} 行情数据...")
 
+    # 统一代码格式为 baostock 的 sh.600000 / sz.000001 格式
+    bs_code = stock_code
+    if "." not in bs_code:
+        digits = "".join(c for c in bs_code if c.isdigit())[-6:]
+        prefix = "sh" if digits[0] in ("6", "9") else "sz"
+        bs_code = f"{prefix}.{digits}"
+    elif "_" in bs_code:
+        bs_code = bs_code.replace("_", ".")
+
     try:
-        # 动态引入 data_downloader 的函数
         downloader_dir = os.path.dirname(DOWNLOADER_SCRIPT)
         if downloader_dir not in sys.path:
             sys.path.insert(0, downloader_dir)
@@ -125,7 +133,7 @@ def refresh_single_stock(stock_code: str, bus=None) -> dict:
             bus.emit_progress("system", "done", f"📡 数据已是最新（{last_date}）")
             return {"ok": True, "rows": 0, "message": "无需更新"}
 
-        new_df = fetch_k_data(stock_code, start_date, trade_date)
+        new_df = fetch_k_data(bs_code, start_date, trade_date)
         logout_baostock()
 
         if new_df.empty:
