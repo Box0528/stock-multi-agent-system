@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+.idea/
+.vscode/
+local_stock_data/
+memory/chroma_db/
+cache/
+tests/
+*.md
+report_*.md

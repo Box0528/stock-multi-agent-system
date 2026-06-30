@@ -95,7 +95,7 @@ def refresh_single_stock(stock_code: str, bus=None) -> dict:
 
     if last_date and last_date >= (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d"):
         bus.emit_progress("system", "done", f"📡 数据已是最新（{last_date}）")
-        return {"ok": True, "rows": 0, "message": f"数据已最新：{last_date}"}
+        return {"ok": True, "rows": 0, "message": f"数据已最新：{last_date}", "trade_date": last_date}
 
     bus.emit_progress("system", "running", f"📡 正在更新 {stock_code} 行情数据...")
 
@@ -133,25 +133,25 @@ def refresh_single_stock(stock_code: str, bus=None) -> dict:
         if start_date > trade_date:
             logout_baostock()
             bus.emit_progress("system", "done", f"📡 数据已是最新（{last_date}）")
-            return {"ok": True, "rows": 0, "message": "无需更新"}
+            return {"ok": True, "rows": 0, "message": "无需更新", "trade_date": last_date or trade_date}
 
         new_df = fetch_k_data(bs_code, start_date, trade_date)
         logout_baostock()
 
         if new_df.empty:
             bus.emit_progress("system", "done", "📡 无新数据")
-            return {"ok": True, "rows": 0, "message": "查询到空数据"}
+            return {"ok": True, "rows": 0, "message": "查询到空数据", "trade_date": last_date or trade_date}
 
         os.makedirs(DATA_DIR, exist_ok=True)
         merge_and_save_csv(file_path, new_df)
         msg = f"更新成功：+{len(new_df)} 行（{start_date} → {trade_date}）"
         bus.emit_progress("system", "done", f"📡 {msg}")
-        return {"ok": True, "rows": len(new_df), "message": msg}
+        return {"ok": True, "rows": len(new_df), "message": msg, "trade_date": trade_date}
 
     except ImportError:
         logger.warning("未找到 data_downloader.py，跳过数据更新")
         bus.emit_progress("system", "running", "📡 未找到数据下载脚本，使用本地缓存")
-        return {"ok": False, "rows": 0, "message": "data_downloader.py 未找到"}
+        return {"ok": False, "rows": 0, "message": "data_downloader.py 未找到", "trade_date": last_date}
 
     except Exception as e:
         try:
@@ -160,7 +160,7 @@ def refresh_single_stock(stock_code: str, bus=None) -> dict:
             pass
         logger.error("单股数据更新失败：%s", e)
         bus.emit_progress("system", "running", f"📡 数据更新失败：{e}，使用本地缓存继续")
-        return {"ok": False, "rows": 0, "message": str(e)}
+        return {"ok": False, "rows": 0, "message": str(e), "trade_date": last_date}
 
 
 def refresh_industry_stocks(industry: str, bus=None) -> dict:
@@ -202,8 +202,12 @@ def refresh_industry_stocks(industry: str, bus=None) -> dict:
         updated = 0
         skipped = 0
         failed = 0
+        # 每处理约10只（行业大时按比例放宽到最多20条心跳），推一次进度，避免SSE长时间静默看起来像卡死
+        heartbeat_every = max(10, total // 10)
 
-        for _, row in sector_stocks.iterrows():
+        for i, (_, row) in enumerate(sector_stocks.iterrows()):
+            if i > 0 and i % heartbeat_every == 0:
+                bus.emit_progress("sector", "running", f"📡 {industry} 数据更新中 {i}/{total}...")
             code = row["code"]
             file_path = _get_file_path(code)
             last_date = _get_local_last_date(file_path)

@@ -1,0 +1,2 @@
+﻿run_time,mode,trade_date,calendar_trade_date,stock_list_day,custom_start_date,custom_end_date,single_date,max_workers,total,success_count,skip_count,fail_count,full_count,incremental_count,single_day_count,custom_range_count,total_new_rows,elapsed_seconds
+2026-06-26 17:50:42,default,2026-06-26,2026-06-26,2026-06-26,,,,4,3198,3198,0,0,1,3197,0,0,6395,831.62

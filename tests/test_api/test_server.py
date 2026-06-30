@@ -8,8 +8,11 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture
 def client():
-    from api.server import app
-    return TestClient(app)
+    from api.server import app, verify_access_key
+    # 测试不应受本地 .env 里 ACCESS_KEY 配置的影响，鉴权逻辑由 test_auth.py 单独覆盖
+    app.dependency_overrides[verify_access_key] = lambda: None
+    yield TestClient(app)
+    app.dependency_overrides.pop(verify_access_key, None)
 
 
 class TestHealthEndpoint:

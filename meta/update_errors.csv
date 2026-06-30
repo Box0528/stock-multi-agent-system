@@ -1,0 +1,8 @@
+﻿code,name,industry_name,download_mode,start_date,end_date,error_msg,worker_id
+sz.000638,*ST万方,未知行业,incremental,2026-04-22,2026-04-24,"返回空数据: code=sz.000638, start=2026-04-22, end=2026-04-24",1
+sz.002931,锋龙股份,未知行业,incremental,2026-04-22,2026-04-24,"返回空数据: code=sz.002931, start=2026-04-22, end=2026-04-24",1
+sz.003041,真爱美家,未知行业,incremental,2026-04-22,2026-04-24,"返回空数据: code=sz.003041, start=2026-04-22, end=2026-04-24",1
+sh.600355,*ST精伦,未知行业,incremental,2026-04-22,2026-04-24,No value to decode,2
+sh.600735,ST新华锦,未知行业,incremental,2026-04-22,2026-04-24,"返回空数据: code=sh.600735, start=2026-04-22, end=2026-04-24",2
+sh.600958,东方证券,未知行业,incremental,2026-04-22,2026-04-24,"返回空数据: code=sh.600958, start=2026-04-22, end=2026-04-24",2
+sh.601003,柳钢股份,未知行业,incremental,2026-04-23,2026-04-24,"返回空数据: code=sh.601003, start=2026-04-23, end=2026-04-24",2

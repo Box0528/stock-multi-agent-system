@@ -6,18 +6,23 @@ import asyncio
 import logging
 import threading
 import re
+import time
 import pandas as pd
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from core.event_bus import EventBus, AgentEvent
 from core.cost_tracker import CostTracker
 from config import get_settings
+from tools.stock_data import _normalize_stock_code, DATA_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +30,31 @@ settings = get_settings()
 app = FastAPI(title="股票研究 Multi-Agent")
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_methods=["*"], allow_headers=["*"])
 
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.middleware("http")
+async def access_log_middleware(request: Request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    duration_ms = (time.time() - start) * 1000
+    logger.info(
+        "%s %s %s %d %.1fms",
+        request.client.host if request.client else "-",
+        request.method, request.url.path, response.status_code, duration_ms,
+    )
+    return response
+
 BASE_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 META_FILE = os.path.join(BASE_DIR, "meta", "stock_meta.csv")
+
+
+def verify_access_key(x_api_key: str = Header(default="")):
+    """共享密钥校验。ACCESS_KEY 未配置时不启用鉴权（本地开发不受影响）。"""
+    if settings.access_key and x_api_key != settings.access_key:
+        raise HTTPException(status_code=401, detail="访问码错误或缺失")
 
 
 import re as _re
@@ -322,8 +350,9 @@ async def scan_stream():
             break
 
 
-@app.post("/api/scan")
-async def scan():
+@app.post("/api/scan", dependencies=[Depends(verify_access_key)])
+@limiter.limit("5/hour")
+async def scan(request: Request):
     return StreamingResponse(
         scan_stream(),
         media_type="text/event-stream",
@@ -331,8 +360,9 @@ async def scan():
     )
 
 
-@app.post("/api/research")
-async def research(req: ResearchRequest):
+@app.post("/api/research", dependencies=[Depends(verify_access_key)])
+@limiter.limit("5/hour")
+async def research(request: Request, req: ResearchRequest):
     try:
         code = req.validated_code
     except ValueError as e:
@@ -347,9 +377,36 @@ async def research(req: ResearchRequest):
     )
 
 
-@app.get("/api/lookup/{stock_code}")
+@app.get("/api/lookup/{stock_code}", dependencies=[Depends(verify_access_key)])
 async def lookup(stock_code: str):
     return lookup_by_code(stock_code)
+
+
+@app.get("/api/kline/{stock_code}", dependencies=[Depends(verify_access_key)])
+async def kline(stock_code: str, days: int = 60):
+    normalized = _normalize_stock_code(stock_code)
+    file_path = os.path.join(DATA_DIR, f"{normalized}.csv")
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail=f"找不到股票 {stock_code} 的本地K线数据")
+
+    df = pd.read_csv(file_path)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+    df = df.tail(days)
+
+    candles = [
+        {
+            "time": row["date"].strftime("%Y-%m-%d"),
+            "open": float(row["open"]),
+            "high": float(row["high"]),
+            "low": float(row["low"]),
+            "close": float(row["close"]),
+            # baostock 的 volume 原始单位是"股"，换算成"手"（1手=100股）避免成交量轴量级失真
+            "volume": round(float(row.get("volume", 0) or 0) / 100, 1),
+        }
+        for _, row in df.iterrows()
+    ]
+    return {"stock_code": stock_code, "candles": candles, "volume_unit": "手"}
 
 
 @app.get("/api/health")

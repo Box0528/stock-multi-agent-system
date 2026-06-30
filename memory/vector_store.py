@@ -44,11 +44,13 @@ def save_prediction(
     risk_level:   str,
     final_report: str,
     price_info:   str = "",
+    trade_date:   str = None,
 ) -> str:
     col = _get_collection("predictions")
     now = datetime.now()
-    # 同股同日只保留最新一次（upsert），防止多次分析污染复盘
-    doc_id = f"{stock_name}_{now.strftime('%Y%m%d')}"
+    date_str = trade_date or now.strftime("%Y-%m-%d")
+    # 同股同"数据实际交易日"只保留最新一次（upsert），防止多次分析污染复盘
+    doc_id = f"{stock_name}_{date_str.replace('-', '')}"
 
     meta = {
         "stock_name": stock_name,
@@ -57,7 +59,7 @@ def save_prediction(
         "rating":     rating,
         "risk_level": risk_level,
         "price_info": price_info,
-        "date":       now.strftime("%Y-%m-%d"),
+        "date":       date_str,
         "timestamp":  now.isoformat(),
     }
     embed_text = f"{stock_name} {industry} 建议:{advice} 评级:{rating} 风险:{risk_level} {final_report[:500]}"
@@ -111,17 +113,19 @@ def save_sector_score(
     up_ratio:       float,
     fund_trend:     str,
     avg_pct:        float,
+    trade_date:     str = None,
 ) -> None:
     col = _get_collection("sector_scores")
     now = datetime.now()
-    doc_id = f"{industry}_{now.strftime('%Y%m%d')}"
+    date_str = trade_date or now.strftime("%Y-%m-%d")
+    doc_id = f"{industry}_{date_str.replace('-', '')}"
     meta = {
         "industry":       industry,
         "strength_score": strength_score,
         "up_ratio":       up_ratio,
         "fund_trend":     fund_trend,
         "avg_pct":        avg_pct,
-        "date":           now.strftime("%Y-%m-%d"),
+        "date":           date_str,
         "timestamp":      now.isoformat(),
     }
     embed_text = f"{industry} 强度:{strength_score} 上涨:{up_ratio}% 资金:{fund_trend}"
@@ -176,16 +180,18 @@ def save_risk_record(
     risk_level:   str,
     risk_signals: list,
     conclusion:   str,
+    trade_date:   str = None,
 ) -> None:
     col = _get_collection("risk_records")
     now = datetime.now()
-    doc_id = f"{stock_name}_risk_{now.strftime('%Y%m%d')}"
+    date_str = trade_date or now.strftime("%Y-%m-%d")
+    doc_id = f"{stock_name}_risk_{date_str.replace('-', '')}"
     meta = {
         "stock_name":   stock_name,
         "risk_level":   risk_level,
         "risk_signals": json.dumps(risk_signals, ensure_ascii=False),
         "conclusion":   conclusion,
-        "date":         now.strftime("%Y-%m-%d"),
+        "date":         date_str,
         "timestamp":    now.isoformat(),
     }
     embed_text = f"{stock_name} 风险:{risk_level} 信号:{','.join(risk_signals)} 结论:{conclusion}"
@@ -240,8 +246,14 @@ def save_all_memory(
     final_report:  str,
     risk_report:   str,
     sector_report: str,
+    trade_date:    str = None,
 ) -> None:
-    """分析完成后，提取关键信息存入三层记忆"""
+    """分析完成后，提取关键信息存入三层记忆。
+
+    trade_date：本次数据实际对应的交易日（来自 data_refresh 阶段的 resolve_real_trade_date），
+    而非系统运行时刻——避免 baostock 数据滞后时记忆被错误地记到"今天"。
+    缺省时（如 CLI 模式未接入数据管道）回退到当前系统日期。
+    """
     combined = final_report + risk_report + sector_report
 
     advice     = (re.search(r'操作建议[：:]\s*(买入|观望|回避)', final_report) or [None,''])[1] or '未知'
@@ -251,7 +263,7 @@ def save_all_memory(
     price_info  = f"收盘价约 {price_match.group(1)} 元" if price_match else ""
 
     # 第一层
-    save_prediction(stock_name, real_industry or industry, advice, rating, risk_level, final_report, price_info)
+    save_prediction(stock_name, real_industry or industry, advice, rating, risk_level, final_report, price_info, trade_date)
 
     # 第二层
     score_match = re.search(r'板块强度评分[：:]\s*([\d.]+)', sector_report)
@@ -263,7 +275,7 @@ def save_all_memory(
         up_ratio   = (int(up_m.group(1)) / int(tot_m.group(1)) * 100) if up_m and tot_m else 0.0
         avg_pct    = float(avg_m.group(1)) if avg_m else 0.0
         fund_trend = fund_m.group(1) if fund_m else "平稳"
-        save_sector_score(real_industry or industry, float(score_match.group(1)), up_ratio, fund_trend, avg_pct)
+        save_sector_score(real_industry or industry, float(score_match.group(1)), up_ratio, fund_trend, avg_pct, trade_date)
 
     # 第三层
     risk_signals   = re.findall(r'⚠️警告[^\|]*\|[^\|]*\|([^\n|]+)', risk_report)
@@ -271,7 +283,7 @@ def save_all_memory(
     m = re.search(r'风控结论[^\n]*\n([^\n]+)', risk_report)
     if m:
         risk_conclusion = m.group(1).strip()
-    save_risk_record(stock_name, risk_level, risk_signals[:5], risk_conclusion or risk_level)
+    save_risk_record(stock_name, risk_level, risk_signals[:5], risk_conclusion or risk_level, trade_date)
 
     print(f"[Memory] ✓ 三层记忆全部保存完成")
 
@@ -304,6 +316,7 @@ def save_agent_lessons(
     stock_name: str,
     industry: str,
     lessons: dict[str, str],
+    trade_date: str = None,
 ) -> None:
     """保存复盘产生的各 agent 行为修正建议。
 
@@ -311,16 +324,17 @@ def save_agent_lessons(
     """
     col = _get_collection("agent_lessons")
     now = datetime.now()
+    date_str = trade_date or now.strftime("%Y-%m-%d")
 
     for agent_name, lesson_text in lessons.items():
         if not lesson_text:
             continue
-        doc_id = f"{stock_name}_{agent_name}_{now.strftime('%Y%m%d')}"
+        doc_id = f"{stock_name}_{agent_name}_{date_str.replace('-', '')}"
         meta = {
             "stock_name": stock_name,
             "industry": industry,
             "agent_name": agent_name,
-            "date": now.strftime("%Y-%m-%d"),
+            "date": date_str,
             "timestamp": now.isoformat(),
         }
         col.upsert(documents=[lesson_text], metadatas=[meta], ids=[doc_id])

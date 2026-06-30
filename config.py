@@ -48,9 +48,14 @@ class Settings(BaseSettings):
     max_tokens_per_analysis: int = 100000
 
     # ── 服务 ──
-    cors_origins: list[str] = ["http://localhost:8000", "http://127.0.0.1:8000"]
+    cors_origins_raw: str = Field(default="http://localhost:8000,http://127.0.0.1:8000", alias="CORS_ORIGINS")
+    access_key: str = Field(default="", alias="ACCESS_KEY")
     data_dir: str = os.path.join(os.path.dirname(__file__), "local_stock_data")
     meta_file: str = os.path.join(os.path.dirname(__file__), "meta", "stock_meta.csv")
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins_raw.split(",") if o.strip()]
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

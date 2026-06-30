@@ -45,6 +45,7 @@ class ResearchState(TypedDict):
     sector_confidence:    Annotated[float, _keep_last_float]
     reasoning_traces:     str                                 # 所有推理链拼接
     search_keywords:      str                                 # Planner 生成的搜索关键词 JSON
+    trade_date:           str                                 # 本次数据实际对应的交易日（非系统运行时刻）
 
 
 # ── 节点-1：数据刷新（分析前自动更新行情）──────────────────────
@@ -68,10 +69,12 @@ def data_refresh_node(state: ResearchState, config: RunnableConfig) -> dict:
         bus.emit_progress("system", "running", "📡 未找到股票代码，跳过数据更新")
         return {"current_step": "data_refreshed"}
 
+    trade_date = None
     try:
         from tools.data_pipeline import refresh_single_stock, refresh_industry_stocks
         # 1. 更新目标股票
         result = refresh_single_stock(stock_code, bus=bus)
+        trade_date = result.get("trade_date")
         if not result["ok"]:
             bus.emit_progress("system", "running", f"📡 目标股票更新失败：{result['message']}，使用本地缓存")
 
@@ -84,7 +87,7 @@ def data_refresh_node(state: ResearchState, config: RunnableConfig) -> dict:
         logger.warning("数据刷新异常（不影响分析）：%s", e)
         bus.emit_progress("system", "running", "📡 数据更新异常，使用本地缓存继续")
 
-    return {"current_step": "data_refreshed"}
+    return {"current_step": "data_refreshed", "trade_date": trade_date}
 
 
 # ── 节点0：Memory 加载 ────────────────────────────────────────
@@ -374,6 +377,7 @@ def memory_save_node(state: ResearchState, config: RunnableConfig) -> dict:
             final_report  = state["final_report"],
             risk_report   = state["risk_report"],
             sector_report = state["sector_report"],
+            trade_date    = state.get("trade_date"),
         )
     except Exception as e:
         logger.error("Memory 保存失败：%s", e)

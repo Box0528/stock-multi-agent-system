@@ -2,6 +2,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
+from datetime import datetime
 from langchain_core.messages import HumanMessage, SystemMessage
 from config import get_llm
 from core.cost_tracker import CostTracker
@@ -35,6 +36,10 @@ SYSTEM_PROMPT = """# 角色
 - 指定需要关注的板块维度（是看资金流向还是看政策催化？）
 - 是否需要对比其他相关板块
 
+# 时间基准
+- 你必须以用户消息中给出的"当前日期"为准判断年份/季度，禁止使用与当前年份不符的年份（包括训练数据中的示例年份）
+- 消息面"必搜关键词"和"追搜建议"涉及时效性表述时，优先用"最新""近期""今年"等相对时间词；确需写具体年份时必须等于当前日期所在年份
+
 # 输出格式
 
 ## 研究任务计划 · {stock_name}
@@ -60,7 +65,8 @@ SYSTEM_PROMPT = """# 角色
 
 
 def run_planner(stock_name: str, industry: str = "", tracker: CostTracker = None, concept_info: str = "") -> str:
-    query = f"请为股票【{stock_name}】制定研究任务计划"
+    today = datetime.now().strftime("%Y年%m月%d日")
+    query = f"请为股票【{stock_name}】制定研究任务计划\n\n⚠️ 当前日期：{today}（搜索关键词的年份必须以此为准，不要使用其他年份）"
     if industry:
         query += f"\n\n⚠️ 系统确认的行业分类：【{industry}】（以此为准，禁止用你自己的知识猜测行业）"
     if concept_info:

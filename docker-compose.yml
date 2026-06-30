@@ -1,0 +1,15 @@
+services:
+  stock-agent:
+    build:
+      context: ..
+      dockerfile: Agent工程/Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./local_stock_data:/app/local_stock_data
+      - ./meta:/app/meta
+      - ./memory/chroma_db:/app/memory/chroma_db
+      - ./cache:/app/cache
+    restart: unless-stopped
