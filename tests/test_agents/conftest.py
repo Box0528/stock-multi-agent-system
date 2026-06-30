@@ -30,6 +30,34 @@ class FakeLLM:
         return FakeResponse(self._content)
 
 
+class FakeLLMSequence:
+    """假LLM：按顺序返回多个预设响应，用于测试'先调工具、再给最终报告'的多轮循环。
+    responses 里每项是 (content, tool_calls) 元组；tool_calls 非空时循环会继续。
+    """
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.invoked_messages_history = []
+        self.invoke_count = 0
+
+    def bind_tools(self, tools):
+        return self
+
+    def invoke(self, messages):
+        self.invoked_messages_history.append(messages)
+        self.invoke_count += 1
+        content, tool_calls = self._responses[min(self.invoke_count - 1, len(self._responses) - 1)]
+        return FakeResponse(content, tool_calls)
+
+
+@pytest.fixture
+def make_fake_llm_sequence(monkeypatch):
+    def _factory(module, responses) -> FakeLLMSequence:
+        fake = FakeLLMSequence(responses)
+        monkeypatch.setattr(module, "get_llm", lambda *a, **kw: fake)
+        return fake
+    return _factory
+
+
 @pytest.fixture
 def make_fake_llm(monkeypatch):
     """返回一个工厂函数：fake_get_llm(module, content) 会 monkeypatch 指定模块的 get_llm，
