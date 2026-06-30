@@ -30,6 +30,10 @@ class AgentOutput:
     reasoning_trace: str = ""
     confidence: float = 0.0
     confidence_details: dict = field(default_factory=dict)
+    # Tool Receipts 溯源分（见 core/grounding.py）。None 表示该agent暂未接入溯源校验。
+    # 当前阶段仅做观测，不参与 Supervisor 加权决策。
+    grounding_score: Optional[float] = None
+    ungrounded_claims: list = field(default_factory=list)
 
 
 def run_reasoning(

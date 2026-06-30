@@ -57,6 +57,42 @@ def test_tool_call_dispatched_to_real_tool_then_final_report(make_fake_llm_seque
                for m in second_round_messages)
 
 
+def test_grounding_score_perfect_when_all_numbers_match_tool_output(make_fake_llm_sequence, monkeypatch):
+    class FakeTool:
+        def invoke(self, args):
+            return "收盘价：18.20，MA5：17.80"
+
+    monkeypatch.setattr(ta_module, "TOOL_MAP", {"get_stock_detail": FakeTool()})
+    tool_call = {"name": "get_stock_detail", "args": {"stock_code": "600226"}, "id": "call_1"}
+    make_fake_llm_sequence(ta_module, [
+        ("", [tool_call]),
+        ("## 技术分析报告\n收盘价18.20元，MA5为17.80", []),
+    ])
+
+    result = run_technical_analyst("分析600226")
+    assert result.grounding_score == 1.0
+    assert result.ungrounded_claims == []
+
+
+def test_grounding_score_flags_fabricated_number(make_fake_llm_sequence, monkeypatch):
+    """回归测试核心场景：LLM编造了一个工具数据里没有的数字（典型幻觉），应该被溯源校验抓到。"""
+    class FakeTool:
+        def invoke(self, args):
+            return "收盘价：18.20"
+
+    monkeypatch.setattr(ta_module, "TOOL_MAP", {"get_stock_detail": FakeTool()})
+    tool_call = {"name": "get_stock_detail", "args": {"stock_code": "600226"}, "id": "call_1"}
+    make_fake_llm_sequence(ta_module, [
+        ("", [tool_call]),
+        ("## 技术分析报告\n收盘价18.20元，目标价35.50元", []),  # 35.50 是编造的
+    ])
+
+    result = run_technical_analyst("分析600226")
+    assert result.grounding_score == 0.5
+    assert len(result.ungrounded_claims) == 1
+    assert result.ungrounded_claims[0].value == "35.50"
+
+
 def test_cost_tracker_records_each_round(make_fake_llm):
     calls = []
 

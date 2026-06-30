@@ -8,6 +8,7 @@ from tools.stock_data import run_stock_screener, get_stock_detail, get_stock_tre
 from core.event_bus import ConsoleEventBus
 from core.cost_tracker import CostTracker
 from core.cognitive import parse_self_evaluation, strip_self_evaluation, SELF_EVAL_SUFFIX, AgentOutput
+from core.grounding import check_grounding
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,7 @@ def run_technical_analyst(
         SystemMessage(content=system_content),
         HumanMessage(content=user_query),
     ]
+    receipts: list[dict] = []  # Tool Receipts：工具调用的"参数+原始返回"，用于事后溯源校验
 
     for i in range(8):
         response = llm_with_tools.invoke(messages)
@@ -130,10 +132,13 @@ def run_technical_analyst(
             raw_report = response.content
             confidence, details = parse_self_evaluation(raw_report)
             clean_report = strip_self_evaluation(raw_report)
+            grounding = check_grounding(clean_report, receipts)
             return AgentOutput(
                 report=clean_report,
                 confidence=confidence,
                 confidence_details=details,
+                grounding_score=grounding["grounding_score"],
+                ungrounded_claims=grounding["ungrounded_claims"],
             )
 
         for tool_call in response.tool_calls:
@@ -149,6 +154,7 @@ def run_technical_analyst(
             else:
                 result = f"未知工具: {tool_name}"
 
+            receipts.append({"tool_name": tool_name, "args": tool_args, "result": str(result)})
             messages.append(ToolMessage(content=str(result), tool_call_id=tool_call["id"]))
 
     return AgentOutput(report="分析超过最大轮次，请重试。", confidence=0.1)
