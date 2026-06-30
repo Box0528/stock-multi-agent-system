@@ -25,10 +25,10 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "local_stock_data")
 META_FILE = os.path.join(BASE_DIR, "meta", "stock_meta.csv")
 
-# data_downloader.py 的路径（你的原始下载脚本）
-DOWNLOADER_SCRIPT = os.path.join(
-    os.path.dirname(BASE_DIR), "股市模型", "data_downloader.py"
-)
+# data_downloader.py 已收编进项目根目录（原样复制，未改动其中任何 baostock 逻辑）。
+# 放在仓库根目录而非 tools/ 下是有意为之：该脚本内部用 dirname(__file__) 推导
+# local_stock_data/meta 的位置，必须和 BASE_DIR 同级才能落在正确的数据目录。
+DOWNLOADER_SCRIPT = os.path.join(BASE_DIR, "data_downloader.py")
 
 
 def _get_file_path(code: str) -> str:

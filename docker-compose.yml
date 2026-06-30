@@ -1,8 +1,7 @@
 services:
   stock-agent:
     build:
-      context: ..
-      dockerfile: Agent工程/Dockerfile
+      context: .
     ports:
       - "8000:8000"
     env_file:

@@ -254,28 +254,22 @@ def save_all_memory(
     而非系统运行时刻——避免 baostock 数据滞后时记忆被错误地记到"今天"。
     缺省时（如 CLI 模式未接入数据管道）回退到当前系统日期。
     """
-    combined = final_report + risk_report + sector_report
-
-    advice     = (re.search(r'操作建议[：:]\s*(买入|观望|回避)', final_report) or [None,''])[1] or '未知'
-    rating     = (re.search(r'综合评级[：:]\s*(⭐+)',             final_report) or [None,''])[1] or ''
-    risk_level = (re.search(r'风险等级[：:][^低中高\n]*([低中高极]+)',risk_report) or [None,''])[1] or '未知'
-    price_match = re.search(r'收盘价[：:]\s*([\d.]+)', combined)
-    price_info  = f"收盘价约 {price_match.group(1)} 元" if price_match else ""
+    from memory.extraction import extract_structured_fields
+    fields = extract_structured_fields(final_report, risk_report, sector_report)
+    advice, rating, risk_level, price_info = (
+        fields["advice"], fields["rating"], fields["risk_level"], fields["price_info"]
+    )
 
     # 第一层
     save_prediction(stock_name, real_industry or industry, advice, rating, risk_level, final_report, price_info, trade_date)
 
     # 第二层
-    score_match = re.search(r'板块强度评分[：:]\s*([\d.]+)', sector_report)
-    if score_match and (real_industry or industry):
-        up_m    = re.search(r'上涨[：:]?\s*(\d+)\s*只', sector_report)
-        tot_m   = re.search(r'股票总数[：:]\s*(\d+)', sector_report)
-        avg_m   = re.search(r'平均涨幅[：:]\s*([-\d.]+)', sector_report)
-        fund_m  = re.search(r'资金(持续流入|平稳|开始撤退)', sector_report)
-        up_ratio   = (int(up_m.group(1)) / int(tot_m.group(1)) * 100) if up_m and tot_m else 0.0
-        avg_pct    = float(avg_m.group(1)) if avg_m else 0.0
-        fund_trend = fund_m.group(1) if fund_m else "平稳"
-        save_sector_score(real_industry or industry, float(score_match.group(1)), up_ratio, fund_trend, avg_pct, trade_date)
+    sector_metrics = fields["sector_metrics"]
+    if sector_metrics and (real_industry or industry):
+        save_sector_score(
+            real_industry or industry, sector_metrics["score"],
+            sector_metrics["up_ratio"], sector_metrics["fund_trend"], sector_metrics["avg_pct"], trade_date,
+        )
 
     # 第三层
     risk_signals   = re.findall(r'⚠️警告[^\|]*\|[^\|]*\|([^\n|]+)', risk_report)
