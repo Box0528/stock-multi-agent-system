@@ -35,26 +35,37 @@ class ScanState(TypedDict):
     analysis_reports:  str   # JSON list of per-stock reports
     market_overview:   str
     current_step:      Annotated[str, _keep_last]
+    accuracy_context:  str   # 历史复盘准确率摘要，注入 Supervisor/Planner prompt
 
 
-# ── 节点1：全量数据刷新 ──────────────────────────────────────
+# ── 节点1：数据新鲜度检查 + 加载历史复盘准确率 ─────────────────
 def scan_data_refresh_node(state: ScanState, config: RunnableConfig) -> dict:
     bus = get_event_bus(config)
-    bus.emit_progress("system", "running", "📡 正在更新全市场行情数据...")
 
     try:
-        from tools.data_pipeline import refresh_all_stocks
-        result = refresh_all_stocks(bus=bus)
-        if result["ok"]:
-            bus.emit_progress("system", "done",
-                f"📡 数据更新完成：更新{result['updated']} 跳过{result['skipped']} 失败{result['failed']}")
+        from tools.data_pipeline import check_market_freshness
+        result = check_market_freshness()
+        if result["is_fresh"]:
+            bus.emit_progress("system", "done", f"📡 {result['message']}，数据新鲜，直接扫描")
         else:
-            bus.emit_progress("system", "running", f"📡 数据更新部分失败，继续扫描：{result['message']}")
+            bus.emit_progress("system", "running",
+                f"📡 {result['message']}，今日尚未全量刷新，使用现有本地数据继续扫描"
+                "（如需最新数据请先运行 scripts/scheduled_refresh.py）")
     except Exception as e:
-        logger.warning("全量数据刷新失败：%s", e)
-        bus.emit_progress("system", "running", "📡 数据更新失败，使用本地缓存继续扫描")
+        logger.warning("数据新鲜度检查失败：%s", e)
+        bus.emit_progress("system", "running", "📡 新鲜度检查失败，使用本地缓存继续扫描")
 
-    return {"current_step": "data_refreshed"}
+    # 加载历史复盘准确率（无数据时返回空字符串，不影响流程）
+    accuracy_context = ""
+    try:
+        from core.review import build_accuracy_summary
+        accuracy_context = build_accuracy_summary(last_n=20)
+        if accuracy_context:
+            bus.emit_progress("system", "done", "📊 已加载历史复盘参考数据")
+    except Exception as e:
+        logger.warning("加载复盘准确率失败：%s", e)
+
+    return {"current_step": "data_refreshed", "accuracy_context": accuracy_context}
 
 
 # ── 节点2：量化选股（纯本地，零成本）─────────────────────────
@@ -171,7 +182,6 @@ def deep_analysis_node(state: ScanState, config: RunnableConfig) -> dict:
                 "stock_code":       code,
                 "industry":         "",
                 "real_industry":    industry,
-                "task_plan":        "",
                 "technical_report": "",
                 "news_report":      "",
                 "sector_report":    "",
@@ -251,8 +261,10 @@ def final_ranking_node(state: ScanState, config: RunnableConfig) -> dict:
         reports_text += f"精选理由：{r['reason']}\n"
         reports_text += f"{r['final_report'][:800]}\n---\n"
 
-    prompt = f"""你是投研总监，请根据以下多只股票的完整分析报告，输出今日投研总结。
+    accuracy_note = state.get("accuracy_context", "")
+    accuracy_section = f"\n\n{accuracy_note}\n" if accuracy_note else ""
 
+    prompt = f"""你是投研总监，请根据以下多只股票的完整分析报告，输出今日投研总结。{accuracy_section}
 {reports_text}
 
 输出格式：
@@ -284,10 +296,68 @@ def final_ranking_node(state: ScanState, config: RunnableConfig) -> dict:
 
     bus.emit_progress("risk", "done", "🏆 今日投研排名生成完成")
 
+    # 保存本次推荐为待复盘预测记录
+    _save_pending_reviews(reports)
+
     return {
         "market_overview": response.content,
         "current_step": "done",
     }
+
+
+def _save_pending_reviews(reports: list[dict]) -> None:
+    """从 deep_analysis 的 reports 里提取推荐方向，存入 pending_reviews。"""
+    try:
+        from datetime import date, datetime
+        from core.review import PendingReview, append_pending, advice_to_direction
+        from memory.extraction import extract_advice
+        import sys, os
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from tools.data_pipeline import _get_local_last_date, _get_file_path
+        import pandas as pd
+
+        scan_date = date.today().isoformat()
+        # 5个交易日后到期（简单推算，check_reviews 会在节假日时顺延）
+        from scripts.check_reviews import _nth_trading_day_after
+        review_date = _nth_trading_day_after(scan_date, n=5)
+
+        pending = []
+        for i, report in enumerate(reports):
+            code = report.get("code", "")
+            name = report.get("name", "")
+            final_report = report.get("final_report", "")
+
+            advice = extract_advice(final_report)
+            direction = advice_to_direction(advice)
+
+            # 推荐时收盘价：从本地 CSV 读最新一行
+            price = 0.0
+            try:
+                file_path = _get_file_path(code)
+                df = pd.read_csv(file_path)
+                if not df.empty and "close" in df.columns:
+                    price = float(df.iloc[-1]["close"])
+            except Exception:
+                pass
+
+            scan_id = f"{scan_date}_{code}_{i}"
+            pending.append(PendingReview(
+                scan_id=scan_id,
+                scan_date=scan_date,
+                review_date=review_date,
+                stock_code=code,
+                stock_name=name,
+                direction=direction,
+                price_at_scan=price,
+                source_advice=advice,
+            ))
+
+        if pending:
+            append_pending(pending)
+            logger.info("已保存 %d 条待复盘预测记录（review_date=%s）", len(pending), review_date)
+
+    except Exception as e:
+        logger.warning("保存待复盘记录失败（不影响主流程）：%s", e)
 
 
 # ── 构建 Graph ────────────────────────────────────────────────

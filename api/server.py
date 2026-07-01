@@ -120,7 +120,6 @@ async def research_stream(stock_code: str, stock_info: dict):
                 "stock_code":       stock_code,
                 "industry":         "",
                 "real_industry":    real_industry,
-                "task_plan":        "",
                 "technical_report": "",
                 "news_report":      "",
                 "sector_report":    "",
@@ -135,7 +134,6 @@ async def research_stream(stock_code: str, stock_info: dict):
                 "news_confidence":      0.7,
                 "sector_confidence":    0.7,
                 "reasoning_traces":     "",
-                "search_keywords":      "",
             }
 
             config = {"configurable": {"event_bus": bus, "cost_tracker": tracker}}
@@ -146,7 +144,7 @@ async def research_stream(stock_code: str, stock_info: dict):
                 event_type="report_meta", agent="system", status="done",
                 message="", metadata={"stock_name": stock_name, "stock_code": stock_code},
             ))
-            for key in ["final_report", "technical_report", "news_report", "sector_report", "risk_report", "task_plan"]:
+            for key in ["final_report", "technical_report", "news_report", "sector_report", "risk_report"]:
                 loop.call_soon_threadsafe(queue.put_nowait, AgentEvent(
                     event_type=f"report_{key}", agent="system", status="done",
                     message="", metadata={"content": result.get(key, "")},

@@ -66,6 +66,10 @@ function startResearch() {
   document.getElementById('btn-run').disabled = true;
   document.getElementById('sdot').className = 'status-dot running';
   document.getElementById('stext').textContent = `正在分析 ${displayName}(${code})...`;
+  document.getElementById('empty').style.display = 'none';
+  const stage = document.getElementById('agents-stage');
+  stage.style.display = 'flex';
+  document.getElementById('stage-sub').textContent = `${displayName}(${code})`;
   startGlobalTimer();
   fetchSSE(code);
 }
@@ -108,10 +112,10 @@ function handleEvent(type, data) {
     document.getElementById('stext').textContent = `正在分析 ${data.stock_name}(${data.stock_code})...`;
 
   } else if (type === 'report_meta') {
-    document.getElementById('empty').style.display = 'none';
+    document.getElementById('agents-stage').style.display = 'none';
     const wrap = document.getElementById('report-wrap');
     wrap.classList.add('visible', 'fade-in');
-    ['rb-final', 'rb-tech', 'rb-news', 'rb-sector', 'rb-risk', 'rb-plan'].forEach(id => {
+    ['rb-final', 'rb-tech', 'rb-news', 'rb-sector', 'rb-risk'].forEach(id => {
       document.getElementById(id).innerHTML = skeletonHTML();
     });
     renderKlineChart(_currentCode);
@@ -182,6 +186,10 @@ async function startScan() {
   document.getElementById('btn-scan').disabled = true;
   document.getElementById('sdot').className = 'status-dot running';
   document.getElementById('stext').textContent = '正在执行今日主动扫描...';
+  document.getElementById('empty').style.display = 'none';
+  const scanStage = document.getElementById('agents-stage');
+  scanStage.style.display = 'flex';
+  document.getElementById('stage-sub').textContent = '全市场筛选中...';
   startGlobalTimer();
 
   try {
@@ -205,7 +213,7 @@ function handleScanEvent(type, data) {
     appendLog(data.agent, data.message, 'tool');
     incTool();
   } else if (type === 'scan_result') {
-    document.getElementById('empty').style.display = 'none';
+    document.getElementById('agents-stage').style.display = 'none';
     document.getElementById('report-wrap').classList.add('visible', 'fade-in');
     document.getElementById('kline-card').style.display = 'none';
     const overview = data.market_overview || '无数据';

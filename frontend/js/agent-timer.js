@@ -4,7 +4,7 @@ let globalStart = 0;
 let globalTimer = null;
 let toolCount = 0;
 let doneCount = 0;
-const AGENTS = ['planner', 'technical', 'news', 'sector', 'supervisor', 'risk'];
+const AGENTS = ['technical', 'news', 'sector', 'supervisor', 'risk'];
 
 function startAgentTimer(agent) {
   if (agentTimers[agent]) clearInterval(agentTimers[agent]);
@@ -114,6 +114,7 @@ function resetUI() {
   document.getElementById('st-elapsed').textContent = '0s';
   document.getElementById('st-total').textContent = AGENTS.length;
   document.getElementById('empty').style.display = 'flex';
+  document.getElementById('agents-stage').style.display = 'none';
   document.getElementById('report-wrap').classList.remove('visible');
   document.getElementById('rating-card').style.display = 'none';
   const klineCard = document.getElementById('kline-card');
@@ -121,4 +122,6 @@ function resetUI() {
   document.getElementById('kline-chart').innerHTML = '';
   const fill = document.getElementById('progress-fill');
   if (fill) fill.style.width = '0%';
+  const stageSub = document.getElementById('stage-sub');
+  if (stageSub) stageSub.textContent = '准备中...';
 }

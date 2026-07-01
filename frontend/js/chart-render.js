@@ -57,10 +57,12 @@ async function renderKlineChart(stockCode) {
   });
   candleSeries.setData(candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })));
 
+  chart.priceScale('right').applyOptions({ scaleMargins: { top: 0.05, bottom: 0.28 } });
+
   const volumeSeries = chart.addHistogramSeries({
     priceFormat: { type: 'volume' },
     priceScaleId: '',
-    scaleMargins: { top: 0.82, bottom: 0 },
+    scaleMargins: { top: 0.80, bottom: 0 },
   });
   volumeSeries.setData(candles.map(c => ({
     time: c.time, value: c.volume,

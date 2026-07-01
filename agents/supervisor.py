@@ -104,19 +104,33 @@ def run_supervisor(
     technical_confidence: float = 0.7,
     news_confidence: float = 0.7,
     sector_confidence: float = 0.7,
+    technical_grounding: float = 1.0,
+    news_grounding: float = 1.0,
+    sector_grounding: float = 1.0,
     lessons: str = "",
     bus=None,
 ) -> AgentOutput:
     today = datetime.now().strftime("%Y年%m月%d日")
 
-    confidence_notes = []
+    alert_notes = []
     if technical_confidence < 0.5:
-        confidence_notes.append(f"⚠️ 技术分析置信度仅 {technical_confidence:.0%}，结论需谨慎采信")
+        alert_notes.append(f"⚠️ 技术分析置信度仅 {technical_confidence:.0%}，结论需谨慎采信")
     if news_confidence < 0.5:
-        confidence_notes.append(f"⚠️ 新闻分析置信度仅 {news_confidence:.0%}，结论需谨慎采信")
+        alert_notes.append(f"⚠️ 新闻分析置信度仅 {news_confidence:.0%}，结论需谨慎采信")
     if sector_confidence < 0.5:
-        confidence_notes.append(f"⚠️ 板块分析置信度仅 {sector_confidence:.0%}，结论需谨慎采信")
-    confidence_block = "\n".join(confidence_notes) if confidence_notes else ""
+        alert_notes.append(f"⚠️ 板块分析置信度仅 {sector_confidence:.0%}，结论需谨慎采信")
+    if technical_grounding < 0.7:
+        alert_notes.append(f"⚠️ 技术分析数据核实率仅 {technical_grounding:.0%}，报告中有数字未能在工具原始数据中找到依据，该维度结论须降权")
+    if news_grounding < 0.7:
+        alert_notes.append(f"⚠️ 新闻分析数据核实率仅 {news_grounding:.0%}，该维度结论须降权")
+    if sector_grounding < 0.7:
+        alert_notes.append(f"⚠️ 板块分析数据核实率仅 {sector_grounding:.0%}，该维度结论须降权")
+    alert_block = "\n".join(alert_notes) if alert_notes else ""
+
+    def _dim_header(label: str, conf: float, grounding: float) -> str:
+        grounding_note = f" | 数据核实率：{grounding:.0%}" if grounding < 1.0 else ""
+        low_warn = "  ⚠️ 数据核实率低，结论须降权" if grounding < 0.7 else ""
+        return f"## {label}（置信度：{conf:.0%}{grounding_note}）{low_warn}"
 
     history_block = ""
     if memory_context:
@@ -127,18 +141,18 @@ def run_supervisor(
     user_content = f"""
 请综合以下报告对【{stock_name}】做出最终投资判断。今日：{today}
 
-{confidence_block}
+{alert_block}
 
 ---
-## 技术分析报告（置信度：{technical_confidence:.0%}）
+{_dim_header("技术分析报告", technical_confidence, technical_grounding)}
 {technical_report}
 
 ---
-## 新闻舆情报告（置信度：{news_confidence:.0%}）
+{_dim_header("新闻舆情报告", news_confidence, news_grounding)}
 {news_report}
 
 ---
-## 板块分析报告（置信度：{sector_confidence:.0%}）
+{_dim_header("板块分析报告", sector_confidence, sector_grounding)}
 {sector_report}
 {history_block}
 """
