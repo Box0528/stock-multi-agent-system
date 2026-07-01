@@ -22,13 +22,12 @@ flowchart TD
     A2 --> C[data_refresh: baostock 增量更新]
     B1 --> C
     C --> D[Memory 加载: 历史预测 / 板块 / 风控 / Agent 教训]
-    D --> E[Planner 任务规划]
 
-    E --> F1[Technical Analyst]
-    E --> F2[News Analyst]
-    E --> F3[Sector Analyst]
+    D --> F1[Technical Analyst\n自主技术分析]
+    D --> F2[News Analyst\n自主生成搜索关键词]
+    D --> F3[Sector Analyst\n板块强弱 + 轮动判断]
 
-    F1 --> G[Supervisor 基金经理汇总 + 置信度加权]
+    F1 --> G[Supervisor 基金经理\n汇总 + 置信度加权]
     F2 --> G
     F3 --> G
 
@@ -47,11 +46,16 @@ flowchart TD
 ## 技术亮点
 
 ### 工程架构
-- **LangGraph StateGraph** 编排 7 个 Agent 节点，显式状态流转
+- **LangGraph StateGraph** 编排 6 个 Agent 节点，显式状态流转
 - **ThreadPoolExecutor 真并行**：3 个分析师并发执行，耗时取最慢的一个（非串行累加）
 - **结构化事件总线**（EventBus）替代 monkey-patch print，每个请求独立实例，解决并发竞态
 - **SSE 流式推送**：实时展示每个 Agent 的执行状态、工具调用、推理过程
 - **成本追踪器**（CostTracker）：线程安全，统计 LLM 调用/Token/搜索/工具消耗
+
+### 自主 Agent 设计
+- **News Analyst 自主规划搜索策略**：不依赖外部任务规划，自行组合 2-4 个关键词，先搜今日动态再搜近7天背景
+- **Sector Analyst 强制行业精确匹配**：内置防幻觉约束，调用工具时必须使用系统传入的精确行业名称，禁止 LLM 自行改写
+- **时间约束强执行**：新闻分析基于当天日期计算，7天内正常引用，超7天强制标注"历史参考"，超30天直接降级不入报告
 
 ### 幻觉检测（进行中）
 - **Tool Receipts 机制**：Agent 调用工具时的原始返回结果会被保留为"收据"，报告生成后用**确定性程序比对**（不是另一个 LLM 做语义判断）核对报告里的数字声明能否在收据里找到依据
@@ -104,10 +108,13 @@ cp .env.example .env
 # 必填：DEEPSEEK_API_KEY、TAVILY_API_KEY
 # 可选：ACCESS_KEY（部署到公网前建议设置）、CORS_ORIGINS
 
-# 3. 启动服务
+# 3. 下载股票数据
+python scripts/scheduled_refresh.py
+
+# 4. 启动服务
 uvicorn api.server:app --host 0.0.0.0 --port 8000
 
-# 4. 访问
+# 5. 访问
 # 浏览器打开 http://localhost:8000
 ```
 
@@ -122,10 +129,9 @@ docker compose up --build
 ## 目录结构
 
 ```
-├── agents/                  # 7 个 Agent 实现
-│   ├── planner.py             # 任务规划
+├── agents/                  # 6 个 Agent 实现
 │   ├── technical_analyst.py   # 技术分析（工具：选股/个股指标，已接入 Tool Receipts）
-│   ├── news_analyst.py        # 新闻舆情（工具：Tavily 搜索）
+│   ├── news_analyst.py        # 新闻舆情（工具：Tavily 搜索，自主生成关键词）
 │   ├── sector_analyst.py      # 板块分析（工具：板块统计/搜索）
 │   ├── supervisor.py          # 基金经理（汇总+置信度加权）
 │   ├── risk_manager.py        # 风控审核
@@ -158,7 +164,7 @@ docker compose up --build
 ├── Dockerfile / docker-compose.yml
 ├── .github/workflows/test.yml    # CI
 └── tests/                        # 141 个自动化测试
-    ├── test_agents/                # 假LLM测试：7个agent的prompt构建+输出处理
+    ├── test_agents/                # 假LLM测试：6个agent的prompt构建+输出处理
     ├── test_memory/                # 纯函数测试：报告字段提取
     ├── test_core/                  # 含 Tool Receipts 溯源校验测试
     ├── test_api/                   # FastAPI 接口集成测试（含鉴权）
@@ -183,11 +189,12 @@ pytest tests/ -v
 - [x] 部署安全（鉴权 / 限流 / CORS / Docker / CI）
 - [x] 分层测试体系（141 个测试）
 - [x] data_downloader 收编进仓库，项目自包含
+- [x] News Analyst 自主规划搜索策略（移除 Planner 依赖）
+- [x] 时间约束强执行（7天/30天分级，基于当日日期计算）
 - [ ] Tool Receipts 幻觉检测：目前仅 Technical Analyst 试点，验证有效后扩展到 News / Sector / Risk Manager
 - [ ] 用客观溯源分校准（或部分替代）LLM 自评置信度——取决于上一项积累的真实数据
 - [ ] 验证 agent_lessons 闭环是否真的影响了 Agent 输出（目前只是文本拼接进 prompt，从未量化验证过）
 - [ ] Agent 间真实协作：Supervisor 发现信号矛盾时可以打回某个分析师追问，而不是单向流水线自己拍板
-- [ ] 前端排版深度优化
 
 ## Contact
 
