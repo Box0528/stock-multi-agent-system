@@ -62,6 +62,7 @@ def get_system_prompt() -> str:
 - 禁止只看板块强度评分就下结论（评分是综合指标，需拆解各维度）
 - 禁止忽略板块轮动阶段（同样60分，启动期和高位期含义完全不同）
 - 禁止在 analyze_sector 返回错误时编造数据
+- 禁止修改用户提供的行业名称！调用 analyze_sector 时必须原样传入用户消息中方括号【】内的行业名称，不得翻译、缩写或替换
 
 # 输出格式
 
@@ -107,9 +108,13 @@ def run_sector_analyst(
     if bus is None:
         bus = ConsoleEventBus()
 
-    query = f"请分析【{industry_name}】板块的整体强弱和资金流向"
+    query = (
+        f"请分析【{industry_name}】板块的整体强弱和资金流向。\n"
+        f"⚠️ 调用 analyze_sector 时，industry_name 参数必须完整传入「{industry_name}」，"
+        f"禁止修改、翻译或缩写。"
+    )
     if stock_name:
-        query += f"，重点关注{stock_name}所在板块的机会"
+        query += f"\n重点关注{stock_name}在该板块中的龙头/跟风/补涨定位。"
 
     system_content = get_system_prompt()
     if lessons:
