@@ -36,8 +36,6 @@ flowchart TD
     H --> I[Memory Save + Reflection 异步复盘]
 ```
 
-三个分析师节点（Technical / News / Sector）通过 `ThreadPoolExecutor` 真并行执行，不是串行调用。
-
 ## 两种工作模式
 
 **模式一 — 主动研究（项目核心）**：系统自主扫描全市场，量化选股筛出候选池，LLM 精选 Top 3-5 只，然后对每只股票执行完整多智能体深度分析，输出今日投研排名报告。
