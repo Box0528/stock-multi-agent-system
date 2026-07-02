@@ -42,7 +42,7 @@ flowchart TD
 - **Reflection 闭环**：复盘引擎对比历史预测与实际走势，归因到具体 Agent，教训自动注入下次分析
 - **可观测性**：结构化 EventBus + SSE 实时推送每步执行状态；线程安全 CostTracker 追踪 Token 与工具消耗
 - **数据自包含**：baostock 下载脚本收编进仓库，分析前自动检测新鲜度并增量更新，实时价格 akshare → 本地 CSV 主备降级
-- **147 个自动化测试**，零真实 API 消耗，GitHub Actions CI，Docker 一键部署
+- **147 个自动化测试**，GitHub Actions CI，Docker 一键部署
 
 ## 快速启动
 
