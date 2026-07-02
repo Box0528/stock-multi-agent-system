@@ -22,6 +22,12 @@ local_stock_data/
 memory/chroma_db/
 cache/
 meta/*_backup_*
+meta/pending_reviews.json
+meta/review_results.json
+meta/last_full_refresh.txt
+
+# Claude Code session data
+.claude/
 
 # OS
 Thumbs.db

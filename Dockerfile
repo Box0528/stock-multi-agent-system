@@ -2,11 +2,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends gcc g++ \
+# 换成阿里云 apt 源，国内速度快
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update && apt-get install -y --no-install-recommends gcc g++ \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements-lock.txt /app/requirements-lock.txt
-RUN pip install --no-cache-dir -r requirements-lock.txt
+# 换成清华 pip 源
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements-lock.txt
 
 COPY . /app/
 

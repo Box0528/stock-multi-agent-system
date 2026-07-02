@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import os
 import sys
-import subprocess
 import logging
 from datetime import datetime, timedelta
 
@@ -255,51 +254,29 @@ def refresh_industry_stocks(industry: str, bus=None) -> dict:
         return {"ok": False, "updated": 0, "total": total, "message": str(e)}
 
 
-def refresh_all_stocks(bus=None) -> dict:
-    """增量更新全部股票（模式一扫描前调用）。
+LAST_REFRESH_FILE = os.path.join(BASE_DIR, "meta", "last_full_refresh.txt")
 
-    直接调用 data_downloader.py 作为子进程，复用其完整的
-    4进程并发 + 重试重登 + 节流 + 进度统计逻辑。
+
+def check_market_freshness() -> dict:
+    """检查全市场数据是否已经刷新过（模式一扫描前调用，不做任何抓取，纯本地读取，毫秒级）。
+
+    依据 scripts/scheduled_refresh.py 写入的时间戳文件判断，
+    不在请求路径里同步触发 baostock 抓取——全量刷新已解耦为独立的离线任务。
     """
-    from core.event_bus import ConsoleEventBus
-    if bus is None:
-        bus = ConsoleEventBus()
-
-    if not os.path.exists(DOWNLOADER_SCRIPT):
-        bus.emit_progress("system", "running", "📡 未找到 data_downloader.py，跳过全量更新")
-        return {"ok": False, "message": f"未找到 {DOWNLOADER_SCRIPT}"}
-
-    bus.emit_progress("system", "running", "📡 正在启动全量增量更新（4进程并发）...")
+    if not os.path.exists(LAST_REFRESH_FILE):
+        return {"is_fresh": False, "last_refresh": None, "message": "从未运行过全量刷新"}
 
     try:
-        python_exe = sys.executable
-        result = subprocess.run(
-            [python_exe, DOWNLOADER_SCRIPT],
-            capture_output=True,
-            text=True,
-            timeout=1800,  # 30分钟超时
-            cwd=os.path.dirname(DOWNLOADER_SCRIPT),
-        )
+        with open(LAST_REFRESH_FILE, "r", encoding="utf-8") as f:
+            last_refresh = f.read().strip()
+        last_refresh_date = last_refresh.split(" ")[0]
+    except Exception:
+        return {"is_fresh": False, "last_refresh": None, "message": "时间戳文件读取失败"}
 
-        if result.returncode == 0:
-            # 从输出中提取统计信息
-            output = result.stdout
-            msg = "全量更新完成"
-            for line in output.split("\n"):
-                if "成功下载数" in line:
-                    msg = line.strip()
-                    break
-            bus.emit_progress("system", "done", f"📡 {msg}")
-            return {"ok": True, "message": msg, "stdout": output[-500:]}
-        else:
-            logger.error("data_downloader 执行失败：%s", result.stderr[-300:])
-            bus.emit_progress("system", "running", "📡 全量更新执行失败，使用现有数据继续")
-            return {"ok": False, "message": result.stderr[-200:]}
-
-    except subprocess.TimeoutExpired:
-        bus.emit_progress("system", "running", "📡 全量更新超时（30分钟），使用现有数据继续")
-        return {"ok": False, "message": "更新超时"}
-    except Exception as e:
-        logger.error("全量更新异常：%s", e)
-        bus.emit_progress("system", "running", f"📡 全量更新异常：{e}")
-        return {"ok": False, "message": str(e)}
+    today = datetime.now().strftime("%Y-%m-%d")
+    is_fresh = last_refresh_date == today
+    return {
+        "is_fresh": is_fresh,
+        "last_refresh": last_refresh,
+        "message": f"数据上次全量更新于 {last_refresh}" if last_refresh else "从未运行过全量刷新",
+    }
