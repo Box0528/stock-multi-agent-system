@@ -2,7 +2,7 @@
 
 [![Test](https://github.com/Box0528/stock-multi-agent-system/actions/workflows/test.yml/badge.svg)](https://github.com/Box0528/stock-multi-agent-system/actions/workflows/test.yml)
 
-基于 LangGraph 的 A 股多智能体投研系统。量化模型负责选股，6 个专职 Agent 并行完成技术、新闻、板块分析并输出研究报告。
+基于 LangGraph 的 A 股多智能体投研系统。量化模型负责选股，6 个专职 Agent 并行完成技术、新闻、板块分析、复盘并输出研究报告。
 
 ## 架构
 
