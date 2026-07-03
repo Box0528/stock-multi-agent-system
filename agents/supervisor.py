@@ -7,6 +7,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from config import get_llm
 from core.cost_tracker import CostTracker
 from core.cognitive import parse_self_evaluation, strip_self_evaluation, SELF_EVAL_SUFFIX, AgentOutput
+from core.resilience import retry_llm_call
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +167,7 @@ def run_supervisor(
         SystemMessage(content=system_content),
         HumanMessage(content=user_content),
     ]
-    response = llm.invoke(messages)
+    response = retry_llm_call(llm, messages)
 
     if tracker:
         usage = getattr(response, "usage_metadata", None) or {}

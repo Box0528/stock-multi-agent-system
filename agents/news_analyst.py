@@ -10,6 +10,7 @@ from tools.search import search_stock_news, search_stock_news_today
 from core.event_bus import ConsoleEventBus
 from core.cost_tracker import CostTracker
 from core.cognitive import parse_self_evaluation, strip_self_evaluation, SELF_EVAL_SUFFIX, AgentOutput
+from core.resilience import retry_llm_call
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +125,7 @@ def run_news_analyst(
     ]
 
     for _ in range(10):
-        response = llm_with_tools.invoke(messages)
+        response = retry_llm_call(llm_with_tools, messages)
         messages.append(response)
 
         if tracker:

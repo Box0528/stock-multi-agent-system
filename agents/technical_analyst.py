@@ -9,6 +9,7 @@ from core.event_bus import ConsoleEventBus
 from core.cost_tracker import CostTracker
 from core.cognitive import parse_self_evaluation, strip_self_evaluation, SELF_EVAL_SUFFIX, AgentOutput
 from core.grounding import check_grounding
+from core.resilience import retry_llm_call
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +119,7 @@ def run_technical_analyst(
     receipts: list[dict] = []  # Tool Receipts：工具调用的"参数+原始返回"，用于事后溯源校验
 
     for i in range(8):
-        response = llm_with_tools.invoke(messages)
+        response = retry_llm_call(llm_with_tools, messages)
         messages.append(response)
 
         if tracker:

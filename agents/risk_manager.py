@@ -7,6 +7,7 @@ from config import get_llm
 from tools.stock_data import get_stock_detail, get_volume_analysis
 from core.cost_tracker import CostTracker
 from core.cognitive import parse_self_evaluation, strip_self_evaluation, SELF_EVAL_SUFFIX, AgentOutput
+from core.resilience import retry_llm_call
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +147,7 @@ def run_risk_manager(
     ]
 
     for _ in range(5):
-        response = llm_with_tools.invoke(messages)
+        response = retry_llm_call(llm_with_tools, messages)
         messages.append(response)
 
         if tracker:
