@@ -10,7 +10,7 @@ const AGENT_META = {
 const STATUS_LABEL = { idle: 'IDLE', running: 'RUN', done: 'DONE' }
 const STATUS_CLASS = { idle: 'badge-idle', running: 'badge-run', done: 'badge-done' }
 
-export default function AgentCard({ id, status, logs, elapsed }) {
+export default function AgentCard({ id, status = 'idle', logs = [], elapsed = '--' }) {
   const meta = AGENT_META[id]
   return (
     <div className={`agent-card agent-${status}`}>
