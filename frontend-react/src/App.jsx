@@ -15,7 +15,7 @@ import KlineChart from './components/KlineChart'
 import ReportPanel from './components/ReportPanel'
 import StatusBar from './components/StatusBar'
 
-const AGENTS = ['technical', 'news', 'sector', 'supervisor', 'risk']
+const AGENTS = ['technical', 'news', 'sector', 'supervisor', 'risk', 'reflection']
 
 function initAgents() {
   return Object.fromEntries(AGENTS.map(a => [a, { status: 'idle', logs: [], elapsed: '--' }]))

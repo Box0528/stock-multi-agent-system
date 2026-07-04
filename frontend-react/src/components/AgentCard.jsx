@@ -1,9 +1,10 @@
 const AGENT_META = {
-  technical: { icon: '📊', name: 'Technical Analyst', sub: '均线 · 换手率 · 量价分析' },
-  news:      { icon: '📰', name: 'News Analyst',      sub: '舆情 · 信息分级 · 政策' },
-  sector:    { icon: '🏭', name: 'Sector Analyst',    sub: '板块强度 · 资金流向' },
-  supervisor:{ icon: '🎯', name: 'Supervisor',        sub: '基金经理 · 综合研判' },
-  risk:      { icon: '🛡️', name: 'Risk Manager',      sub: '风控审核 · 仓位建议' },
+  technical:  { icon: '📊', name: 'Technical Analyst', sub: '均线 · 换手率 · 量价分析' },
+  news:       { icon: '📰', name: 'News Analyst',      sub: '舆情 · 信息分级 · 政策' },
+  sector:     { icon: '🏭', name: 'Sector Analyst',    sub: '板块强度 · 资金流向' },
+  supervisor: { icon: '🎯', name: 'Supervisor',        sub: '基金经理 · 综合研判' },
+  risk:       { icon: '🛡️', name: 'Risk Manager',      sub: '风控审核 · 仓位建议' },
+  reflection: { icon: '🔍', name: 'Reflection Engine', sub: '复盘 · 偏差归因 · 行为修正' },
 }
 
 const STATUS_LABEL = { idle: 'IDLE', running: 'RUN', done: 'DONE' }

@@ -1,6 +1,6 @@
 import AgentCard from './AgentCard'
 
-const AGENTS = ['technical', 'news', 'sector', 'supervisor', 'risk']
+const AGENTS = ['technical', 'news', 'sector', 'supervisor', 'risk', 'reflection']
 
 export default function AgentStage({ agents, stageLabel }) {
   return (

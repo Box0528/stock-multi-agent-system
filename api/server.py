@@ -202,7 +202,7 @@ def _run_reflection_async(result: dict, stock_name: str,
     def reflection_thread():
         try:
             _push(AgentEvent(
-                event_type="progress", agent="risk", status="running",
+                event_type="progress", agent="reflection", status="running",
                 message="🔍 复盘引擎正在后台分析...",
             ))
 
@@ -211,10 +211,9 @@ def _run_reflection_async(result: dict, stock_name: str,
 
             if not has_history or not last_advice:
                 _push(AgentEvent(
-                    event_type="progress", agent="risk", status="done",
+                    event_type="progress", agent="reflection", status="done",
                     message="⏭️ 首次分析，跳过复盘",
                 ))
-                # 推送成本统计
                 _push(AgentEvent(
                     event_type="cost_summary", agent="system", status="done",
                     message="", metadata=tracker.snapshot().to_dict(),
@@ -229,8 +228,25 @@ def _run_reflection_async(result: dict, stock_name: str,
             from memory.vector_store import get_prediction_history
 
             current_price = get_realtime_price(stock_name)
-            history       = get_prediction_history(stock_name, top_k=5)
-            last_record   = history[0] if history else {}
+
+            # Skip reflection entirely when realtime price is unavailable —
+            # the LLM would produce an "all unavailable" report that looks broken.
+            if current_price["source"] == "unavailable":
+                _push(AgentEvent(
+                    event_type="progress", agent="reflection", status="done",
+                    message="⏭️ 实时行情不可用，跳过复盘",
+                ))
+                _push(AgentEvent(
+                    event_type="cost_summary", agent="system", status="done",
+                    message="", metadata=tracker.snapshot().to_dict(),
+                ))
+                _push(AgentEvent(
+                    event_type="done", agent="system", status="done", message="",
+                ))
+                return
+
+            history     = get_prediction_history(stock_name, top_k=5)
+            last_record = history[0] if history else {}
 
             reflection_text = run_reflection(
                 stock_name      = stock_name,
@@ -244,7 +260,7 @@ def _run_reflection_async(result: dict, stock_name: str,
             )
 
             was_correct = False
-            if current_price["source"] != "unavailable" and last_record.get("price_info"):
+            if last_record.get("price_info"):
                 m = re.search(r'([\d.]+)\s*元', last_record.get("price_info", ""))
                 if m:
                     last_p = float(m.group(1))
@@ -263,16 +279,16 @@ def _run_reflection_async(result: dict, stock_name: str,
                     event_type="reflection", agent="system", status="done",
                     message="", metadata={"content": reflection_text, "was_correct": was_correct},
                 ))
-            # Always mark reflection step done so frontend progress bar reaches 100%
+            # Always mark reflection done so frontend progress bar reaches 100%
             _push(AgentEvent(
-                event_type="progress", agent="risk", status="done",
+                event_type="progress", agent="reflection", status="done",
                 message=f"✅ 复盘完成 — 预测{'正确 ✓' if was_correct else '存在偏差，已记录'}" if reflection_text else "⏭️ 复盘已完成",
             ))
 
         except Exception as e:
             logger.error("复盘出错：%s", e)
             _push(AgentEvent(
-                event_type="progress", agent="risk", status="done",
+                event_type="progress", agent="reflection", status="done",
                 message="⚠️ 复盘异常，已跳过",
             ))
         finally:
