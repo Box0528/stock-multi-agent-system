@@ -73,8 +73,12 @@ def run_research(stock_name: str, industry: str = "") -> str:
 
 
 if __name__ == "__main__":
-    STOCK_NAME = "有研新材"
-    INDUSTRY   = "半导体材料"
-    report = run_research(STOCK_NAME, INDUSTRY)
+    import argparse
+    parser = argparse.ArgumentParser(description="股票研究 Multi-Agent CLI")
+    parser.add_argument("stock", help="股票名称，如：有研新材")
+    parser.add_argument("--industry", default="", help="行业（可选，自动从 meta 查询）")
+    args = parser.parse_args()
+
+    report = run_research(args.stock, args.industry)
     print("\n" + "="*60)
     print(report)
