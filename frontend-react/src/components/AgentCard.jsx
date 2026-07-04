@@ -29,10 +29,10 @@ export default function AgentCard({ id, status = 'idle', logs = [], elapsed = '-
           <span className="agent-elapsed">{elapsed}</span>
         </div>
       </div>
-      {logs.length > 0 && (
+      {logs.filter(l => l.type === 'ok').length > 0 && (
         <div className="agent-logs">
-          {logs.map((log, i) => (
-            <div key={i} className={`log-item ${log.type}`}>{log.msg}</div>
+          {logs.filter(l => l.type === 'ok').map((log, i) => (
+            <div key={i} className="log-item ok">{log.msg}</div>
           ))}
         </div>
       )}
