@@ -32,6 +32,9 @@ export default function KlineChart({ stockCode }) {
           rightPriceScale: { borderColor: '#e5e7eb' },
           timeScale: { borderColor: '#e5e7eb' },
           crosshair: { mode: LC.CrosshairMode.Normal },
+          // Prevent chart from stealing page scroll events
+          handleScroll: { mouseWheel: false, pressedMouseMove: true },
+          handleScale: { mouseWheel: false, pinch: false },
         })
 
         const candleSeries = chart.addCandlestickSeries({
