@@ -46,9 +46,11 @@ def test_lessons_appended(make_fake_llm):
     assert "上次把过期新闻当成新信号" in system_content(fake)
 
 
-def test_self_eval_parsed_and_stripped(make_fake_llm):
+def test_self_eval_parsed_and_stripped(make_fake_llm_sequence, monkeypatch):
+    monkeypatch.setattr(news_module, "TOOL_MAP", {"search_stock_news_today": type("T", (), {"invoke": lambda s, a: "无新闻"})()})
+    tool_call = {"name": "search_stock_news_today", "args": {"query": "亨通股份"}, "id": "c1"}
     content = "## 新闻舆情分析报告\n消息面方向：中性\n\n---自评估---\n- 置信度：60%"
-    make_fake_llm(news_module, content)
+    make_fake_llm_sequence(news_module, [("", [tool_call]), (content, [])])
     result = run_news_analyst("亨通股份")
     assert result.confidence == 0.6
     assert "自评估" not in result.report

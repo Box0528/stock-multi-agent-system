@@ -39,9 +39,11 @@ def test_lessons_appended(make_fake_llm):
     assert "上次只看强度评分忽略了轮动阶段" in system_content(fake)
 
 
-def test_self_eval_parsed_and_stripped(make_fake_llm):
+def test_self_eval_parsed_and_stripped(make_fake_llm_sequence, monkeypatch):
+    monkeypatch.setattr(sector_module, "TOOL_MAP", {"analyze_sector": type("T", (), {"invoke": lambda s, a: "强度评分：75"})()})
+    tool_call = {"name": "analyze_sector", "args": {"industry_name": "D44电力、热力生产和供应业"}, "id": "c1"}
     content = "## 板块分析报告\n板块强度评分：75/100\n\n---自评估---\n- 置信度：70%"
-    make_fake_llm(sector_module, content)
+    make_fake_llm_sequence(sector_module, [("", [tool_call]), (content, [])])
     result = run_sector_analyst("D44电力、热力生产和供应业")
     assert result.confidence == 0.7
     assert "自评估" not in result.report

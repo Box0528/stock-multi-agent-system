@@ -20,9 +20,11 @@ def test_lessons_appended(make_fake_llm):
     assert "上次过度依赖MA5信号" in system_content(fake)
 
 
-def test_self_eval_parsed_and_stripped(make_fake_llm):
+def test_self_eval_parsed_and_stripped(make_fake_llm_sequence, monkeypatch):
+    monkeypatch.setattr(ta_module, "TOOL_MAP", {"get_stock_detail": type("T", (), {"invoke": lambda s, a: "收盘价：18.20"})()})
+    tool_call = {"name": "get_stock_detail", "args": {"stock_code": "600226"}, "id": "c1"}
     content = "## 技术分析报告\n趋势：多头排列\n\n---自评估---\n- 置信度：85%"
-    make_fake_llm(ta_module, content)
+    make_fake_llm_sequence(ta_module, [("", [tool_call]), (content, [])])
     result = run_technical_analyst("分析600226")
     assert result.confidence == 0.85
     assert "自评估" not in result.report
@@ -93,13 +95,16 @@ def test_grounding_score_flags_fabricated_number(make_fake_llm_sequence, monkeyp
     assert result.ungrounded_claims[0].value == "35.50"
 
 
-def test_cost_tracker_records_each_round(make_fake_llm):
+def test_cost_tracker_records_each_round(make_fake_llm_sequence, monkeypatch):
     calls = []
 
     class FakeTracker:
         def record_llm_call(self, input_tokens, output_tokens):
             calls.append((input_tokens, output_tokens))
+        def record_tool_call(self): pass
 
-    make_fake_llm(ta_module, "...")
+    monkeypatch.setattr(ta_module, "TOOL_MAP", {"get_stock_detail": type("T", (), {"invoke": lambda s, a: "收盘价：18.20"})()})
+    tool_call = {"name": "get_stock_detail", "args": {"stock_code": "600226"}, "id": "c1"}
+    make_fake_llm_sequence(ta_module, [("", [tool_call]), ("...", [])])
     run_technical_analyst("分析600226", tracker=FakeTracker())
-    assert calls == [(10, 20)]
+    assert calls == [(10, 20), (10, 20)]
