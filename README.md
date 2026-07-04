@@ -55,7 +55,7 @@ docker compose up --build
 ```
 用户输入
   ├─ 模式一（主动扫描）
-  │    量化选股 → LLM 精选 3-5 只 → 对每只跑完整 workflow
+  │    量化选股 → LLM 精选 5 只 → 对每只跑完整 workflow
   └─ 模式二（指定分析）
        股票代码 → 完整 workflow
 

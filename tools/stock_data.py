@@ -99,6 +99,7 @@ def run_stock_screener(top_n_industries: int = 10) -> str:
                 "ma10": latest.get("ma10", np.nan),
                 "ma20": latest.get("ma20", np.nan),
                 "isST": str(latest.get("isST", "0")),
+                "data_date": str(df.iloc[-1]["date"])[:10],
             })
 
             if pick_stock(candidate):
@@ -111,6 +112,16 @@ def run_stock_screener(top_n_industries: int = 10) -> str:
 
     result_df = pd.DataFrame(results)
 
+    # 只保留最新交易日的数据，避免本地数据过期时反复推荐同一批股票
+    max_date = result_df["data_date"].max()
+    stale_count = int((result_df["data_date"] < max_date).sum())
+    result_df = result_df[result_df["data_date"] == max_date].copy()
+
+    if result_df.empty:
+        return "今日没有符合条件的股票。"
+
+    stale_note = f"（注：已过滤 {stale_count} 只数据日期早于 {max_date} 的股票）" if stale_count else ""
+
     # 行业强度排名
     industry_rank = (
         result_df.groupby("industry_name")
@@ -121,9 +132,11 @@ def run_stock_screener(top_n_industries: int = 10) -> str:
     )
     top_industries = industry_rank["industry_name"].tolist()
     final_df = result_df[result_df["industry_name"].isin(top_industries)].copy()
+    # 同行业内随机打乱顺序，避免 LLM 总是选排在最前面的同几只
+    final_df = final_df.sample(frac=1, random_state=None).reset_index(drop=True)
 
     # 格式化输出给LLM
-    output_lines = [f"共筛选出 {len(final_df)} 只股票，覆盖 {len(top_industries)} 个强势行业：\n"]
+    output_lines = [f"共筛选出 {len(final_df)} 只股票，覆盖 {len(top_industries)} 个强势行业（数据日期：{max_date}）{stale_note}：\n"]
 
     for industry in top_industries:
         row = industry_rank[industry_rank["industry_name"] == industry].iloc[0]
@@ -327,6 +340,13 @@ def analyze_sector(industry_name: str, top_n: int = 5) -> str:
 
     meta_df = pd.read_csv(META_FILE)
     sector_stocks = meta_df[meta_df["industry_name"] == industry_name]
+
+    # LLM 有时会把 "J67资本市场服务" 简写成 "资本市场服务"，做前缀容错匹配
+    if sector_stocks.empty:
+        fallback = meta_df[meta_df["industry_name"].str.contains(industry_name, regex=False, na=False)]
+        if not fallback.empty:
+            industry_name = fallback.iloc[0]["industry_name"]
+            sector_stocks = fallback
 
     if sector_stocks.empty:
         return f"未找到行业'{industry_name}'的股票数据。"

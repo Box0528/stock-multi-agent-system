@@ -25,8 +25,18 @@ def extract_risk_level(risk_report: str) -> str:
 
 
 def extract_price_info(combined_text: str) -> str:
-    m = re.search(r'收盘价[：:]\s*([\d.]+)', combined_text)
-    return f"收盘价约 {m.group(1)} 元" if m else ""
+    # 按优先级依次尝试常见价格标签
+    for pattern in [
+        r'收盘价[：:]\s*([\d.]+)',
+        r'最新价[：:]\s*([\d.]+)',
+        r'当前价[：:]\s*([\d.]+)',
+        r'现价\s*([\d.]+)',
+        r'当前股价[：:]\s*([\d.]+)',
+    ]:
+        m = re.search(pattern, combined_text)
+        if m:
+            return f"收盘价约 {m.group(1)} 元"
+    return ""
 
 
 def extract_sector_metrics(sector_report: str) -> dict | None:

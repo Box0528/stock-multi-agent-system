@@ -100,7 +100,7 @@ def planner_select_node(state: ScanState, config: RunnableConfig) -> dict:
     from config import get_llm
     from langchain_core.messages import SystemMessage
 
-    llm = get_llm(temperature=0.1)
+    llm = get_llm(temperature=0.35)
 
     prompt = f"""你是一位资深投研总监。以下是今日量化选股模型筛出的候选股票池：
 
@@ -110,6 +110,7 @@ def planner_select_node(state: ScanState, config: RunnableConfig) -> dict:
 1. 技术信号最强（均线多头 + 换手率适中 + 放量）
 2. 所在行业有资金共振（同行业多只入选）
 3. 成交额充足（流动性好）
+4. 尽量覆盖不同行业，避免选同一行业超过 2 只
 
 输出严格 JSON 格式（不要其他文字）：
 [
@@ -326,9 +327,7 @@ def _save_pending_reviews(reports: list[dict]) -> None:
         import pandas as pd
 
         scan_date = date.today().isoformat()
-        # 5个交易日后到期（简单推算，check_reviews 会在节假日时顺延）
         from scripts.check_reviews import _nth_trading_day_after
-        review_date = _nth_trading_day_after(scan_date, n=5)
 
         pending = []
         for i, report in enumerate(reports):
@@ -349,17 +348,22 @@ def _save_pending_reviews(reports: list[dict]) -> None:
             except Exception:
                 pass
 
-            scan_id = f"{scan_date}_{code}_{i}"
-            pending.append(PendingReview(
-                scan_id=scan_id,
-                scan_date=scan_date,
-                review_date=review_date,
-                stock_code=code,
-                stock_name=name,
-                direction=direction,
-                price_at_scan=price,
-                source_advice=advice,
-            ))
+            # T+1 和 T+5 各写一条
+            for check_type, n_days in [("t1", 1), ("t5", 5)]:
+                review_date = _nth_trading_day_after(scan_date, n_days)
+                scan_id = f"{scan_date}_{code}_{check_type}"
+                pending.append(PendingReview(
+                    scan_id=scan_id,
+                    scan_date=scan_date,
+                    review_date=review_date,
+                    stock_code=code,
+                    stock_name=name,
+                    direction=direction,
+                    price_at_scan=price,
+                    source_advice=advice,
+                    check_type=check_type,
+                    source="scan",
+                ))
 
         if pending:
             append_pending(pending)

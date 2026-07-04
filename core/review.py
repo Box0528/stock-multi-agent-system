@@ -33,14 +33,16 @@ Direction = Literal["bullish", "bearish", "neutral"]
 
 @dataclass
 class PendingReview:
-    scan_id: str           # 扫描批次 ID（scan_date + 序号，唯一键）
+    scan_id: str           # 唯一键：scan_date_code_checktype
     scan_date: str         # 推荐日期 YYYY-MM-DD
-    review_date: str       # 到期验证日期 YYYY-MM-DD（5个交易日后，由 check_reviews 实际计算）
+    review_date: str       # 到期验证日期 YYYY-MM-DD
     stock_code: str        # sh.600000 格式
     stock_name: str
     direction: Direction   # 推荐方向：bullish/bearish/neutral
-    price_at_scan: float   # 推荐时收盘价（用于计算涨跌幅）
+    price_at_scan: float   # 推荐时收盘价
     source_advice: str     # 原始操作建议文字（买入/观望/回避）
+    check_type: str = "t5"     # "t1"=次日 / "t5"=5交易日后
+    source: str = "scan"       # "scan"=模式一 / "research"=模式二单股
 
 
 @dataclass
@@ -54,8 +56,10 @@ class ReviewResult:
     price_at_scan: float
     price_at_review: float
     return_pct: float      # (price_at_review - price_at_scan) / price_at_scan * 100
-    direction_correct: bool   # 方向是否正确（neutral 不计入准确率统计）
-    counted_in_stats: bool    # neutral 不计入，或数据缺失时不计入
+    direction_correct: bool
+    counted_in_stats: bool
+    check_type: str = "t5"
+    source: str = "scan"
 
 
 # ── 方向映射 ────────────────────────────────────────────────────
@@ -145,37 +149,43 @@ def pop_due_pending(as_of: str | None = None) -> tuple[list[dict], list[dict]]:
 
 # ── Accuracy summary ────────────────────────────────────────────
 
-def build_accuracy_summary(last_n: int = 20) -> str:
-    """
-    从最近 last_n 条 counted 结果里计算方向准确率，
-    返回一段可直接注入 prompt 的中文文字。
-    纯统计，不调 LLM。
-    """
-    results = load_results()
-    counted = [r for r in results if r.get("counted_in_stats")]
-    recent = counted[-last_n:]
-
-    if not recent:
-        return ""
-
-    total = len(recent)
-    correct = sum(1 for r in recent if r["direction_correct"])
-    accuracy = correct / total * 100
-
-    # 按方向细分
-    bullish = [r for r in recent if r["direction"] == "bullish"]
-    bearish = [r for r in recent if r["direction"] == "bearish"]
+def _acc_block(records: list[dict], label: str) -> list[str]:
+    """计算一组记录的准确率，返回格式化文本行。"""
+    counted = [r for r in records if r.get("counted_in_stats")]
+    if not counted:
+        return []
+    total = len(counted)
+    correct = sum(1 for r in counted if r["direction_correct"])
+    bullish = [r for r in counted if r["direction"] == "bullish"]
+    bearish = [r for r in counted if r["direction"] == "bearish"]
     bull_acc = (sum(1 for r in bullish if r["direction_correct"]) / len(bullish) * 100) if bullish else None
     bear_acc = (sum(1 for r in bearish if r["direction_correct"]) / len(bearish) * 100) if bearish else None
+    lines = [f"  {label}：{correct/total*100:.0f}%（{correct}/{total}）"
+             + (f"  看多{bull_acc:.0f}%" if bull_acc is not None else "")
+             + (f"  看空{bear_acc:.0f}%" if bear_acc is not None else "")]
+    return lines
 
-    lines = [
-        f"【历史复盘参考（最近 {total} 次有效预测）】",
-        f"整体方向准确率：{accuracy:.0f}%（{correct}/{total}）",
-    ]
-    if bull_acc is not None:
-        lines.append(f"看多准确率：{bull_acc:.0f}%（样本 {len(bullish)} 次）")
-    if bear_acc is not None:
-        lines.append(f"看空准确率：{bear_acc:.0f}%（样本 {len(bearish)} 次）")
-    lines.append("注：以上为5交易日后实际价格验证结果，供参考，不作为本次决策的硬约束。")
 
+def build_accuracy_summary(last_n: int = 20) -> str:
+    """
+    从最近 last_n 条有效结果里计算方向准确率（T+1 / T+5 分开展示），
+    返回一段可直接注入 prompt 的中文文字。纯统计，不调 LLM。
+    """
+    results = load_results()
+    if not results:
+        return ""
+
+    recent = results[-last_n:]
+    t1 = [r for r in recent if r.get("check_type", "t5") == "t1"]
+    t5 = [r for r in recent if r.get("check_type", "t5") == "t5"]
+
+    lines_t1 = _acc_block(t1, "次日验证")
+    lines_t5 = _acc_block(t5, "5交易日验证")
+    if not lines_t1 and not lines_t5:
+        return ""
+
+    lines = [f"【历史复盘参考（最近 {len(recent)} 条）】"]
+    lines += lines_t1
+    lines += lines_t5
+    lines.append("注：供参考，不作为本次决策的硬约束。")
     return "\n".join(lines)

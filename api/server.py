@@ -154,6 +154,13 @@ async def research_stream(stock_code: str, stock_info: dict):
                 event_type="report_done", agent="system", status="done", message="",
             ))
 
+            # 写入 pending_reviews（次日 T+1 和 5交易日 T+5 各一条）
+            _append_research_pending(
+                stock_name=stock_name,
+                stock_code=stock_code,
+                final_report=result.get("final_report", ""),
+            )
+
             # 后台异步跑 Reflection
             _run_reflection_async(
                 result=result,
@@ -194,6 +201,54 @@ async def research_stream(stock_code: str, stock_info: dict):
                 break
     finally:
         stop_event.set()
+
+
+def _append_research_pending(stock_name: str, stock_code: str, final_report: str) -> None:
+    """模式二单股分析完成后，写入 T+1 和 T+5 两条 pending_review。"""
+    try:
+        from datetime import date as _date
+        from core.review import PendingReview, append_pending, advice_to_direction
+        from memory.extraction import extract_advice
+        from scripts.check_reviews import _nth_trading_day_after
+        from tools.data_pipeline import _get_file_path
+        import pandas as pd
+
+        advice    = extract_advice(final_report)
+        direction = advice_to_direction(advice)
+        scan_date = _date.today().isoformat()
+
+        # 推荐时价格：读本地 CSV 最后一行
+        price = 0.0
+        try:
+            fpath = _get_file_path(stock_code)
+            df = pd.read_csv(fpath)
+            if not df.empty and "close" in df.columns:
+                price = float(df.iloc[-1]["close"])
+        except Exception:
+            pass
+
+        records = []
+        for check_type, n_days in [("t1", 1), ("t5", 5)]:
+            review_date = _nth_trading_day_after(scan_date, n_days)
+            scan_id = f"{scan_date}_{stock_code}_{check_type}"
+            records.append(PendingReview(
+                scan_id       = scan_id,
+                scan_date     = scan_date,
+                review_date   = review_date,
+                stock_code    = stock_code,
+                stock_name    = stock_name,
+                direction     = direction,
+                price_at_scan = price,
+                source_advice = advice,
+                check_type    = check_type,
+                source        = "research",
+            ))
+
+        append_pending(records)
+        logger.info("已写入 %s T+1/T+5 pending reviews（review: %s / %s）",
+                    stock_name, records[0].review_date, records[1].review_date)
+    except Exception as e:
+        logger.warning("写入 pending reviews 失败（不影响主流程）：%s", e)
 
 
 def _run_reflection_async(result: dict, stock_name: str,
@@ -249,8 +304,22 @@ def _run_reflection_async(result: dict, stock_name: str,
                 ))
                 return
 
-            history     = get_prediction_history(stock_name, top_k=5)
-            last_record = history[0] if history else {}
+            history = get_prediction_history(stock_name, top_k=5)
+            # history[0] = 本次刚保存的预测；history[1] = 上次预测（才是复盘对象）
+            if len(history) < 2:
+                _push(AgentEvent(
+                    event_type="progress", agent="reflection", status="done",
+                    message="⏭️ 历史记录不足，跳过复盘",
+                ))
+                _push(AgentEvent(
+                    event_type="cost_summary", agent="system", status="done",
+                    message="", metadata=tracker.snapshot().to_dict(),
+                ))
+                _push(AgentEvent(
+                    event_type="done", agent="system", status="done", message="",
+                ))
+                return
+            last_record = history[1]
 
             reflection_text = run_reflection(
                 stock_name      = stock_name,
@@ -263,35 +332,19 @@ def _run_reflection_async(result: dict, stock_name: str,
                 tracker         = tracker,
             )
 
-            was_correct = False
-            chg = 0.0
-            if last_record.get("price_info"):
-                m = re.search(r'([\d.]+)\s*元', last_record.get("price_info", ""))
-                if m:
-                    last_p = float(m.group(1))
-                    curr_p = current_price["price"]
-                    chg    = (curr_p - last_p) / last_p * 100 if last_p > 0 else 0
-                    advice = last_advice
-                    was_correct = (
-                        (advice == "买入" and chg > 3) or
-                        (advice == "回避" and chg < -3) or
-                        (advice == "观望" and abs(chg) < 5)
-                    )
-
             if reflection_text:
                 save_reflection_to_memory(
-                    stock_name, reflection_text, was_correct,
+                    stock_name, reflection_text,
                     industry=result.get("real_industry", ""),
-                    price_change_pct=chg,
                 )
                 _push(AgentEvent(
                     event_type="reflection", agent="system", status="done",
-                    message="", metadata={"content": reflection_text, "was_correct": was_correct},
+                    message="", metadata={"content": reflection_text},
                 ))
             # Always mark reflection done so frontend progress bar reaches 100%
             _push(AgentEvent(
                 event_type="progress", agent="reflection", status="done",
-                message=f"✅ 复盘完成 — 预测{'正确 ✓' if was_correct else '存在偏差，已记录'}" if reflection_text else "⏭️ 复盘已完成",
+                message="✅ 归因复盘完成，准确率将在次日/5日后验证" if reflection_text else "⏭️ 复盘已完成",
             ))
 
         except Exception as e:
