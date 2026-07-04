@@ -32,9 +32,6 @@ export default function KlineChart({ stockCode }) {
           rightPriceScale: { borderColor: '#e5e7eb' },
           timeScale: { borderColor: '#e5e7eb' },
           crosshair: { mode: LC.CrosshairMode.Normal },
-          // Prevent chart from stealing page scroll events
-          handleScroll: { mouseWheel: false, pressedMouseMove: true },
-          handleScale: { mouseWheel: false, pinch: false },
         })
 
         const candleSeries = chart.addCandlestickSeries({
@@ -56,6 +53,13 @@ export default function KlineChart({ stockCode }) {
         })))
 
         chart.timeScale().fitContent()
+
+        // LightweightCharts calls preventDefault() on wheel events which blocks
+        // the parent panel from scrolling. Forward deltaY manually so both
+        // chart zoom and page scroll work simultaneously.
+        const mainPanel = container.closest('.main-panel')
+        const onWheel = (e) => { if (mainPanel) mainPanel.scrollTop += e.deltaY }
+        container.addEventListener('wheel', onWheel, { passive: true })
 
         // Tooltip
         const byTime = Object.fromEntries(candles.map(c => [c.time, c]))
