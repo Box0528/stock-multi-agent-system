@@ -90,6 +90,38 @@ flowchart TD
 
 ---
 
+## 核心机制
+
+### Tool Receipts（幻觉检测）
+
+每次工具调用的原始返回被保留为"收据"（receipt）。报告生成后，`core/grounding.py` 用确定性程序从报告文本中提取数字声明（正则匹配小数、整数+金融单位），逐条与收据比对，输出 `grounding_score`。
+
+该分数通过 prompt 注入 Supervisor，作为软约束影响最终判断，不引入第二个 LLM。Technical / News / Sector 三个分析师 Agent 全覆盖。
+
+实现参考：[arXiv:2603.10060](https://arxiv.org/pdf/2603.10060)
+
+### 四层向量记忆（ChromaDB）
+
+| 集合 | 写入时机 | 读取用途 |
+|---|---|---|
+| `predictions` | 每次分析结束后 `memory_save` | Reflection 对比基准；下次分析注入历史建议 |
+| `sector_scores` | Sector Analyst 完成后 | Sector Analyst 加载板块轮动历史 |
+| `risk_records` | Risk Manager 完成后 | Risk Manager 加载该股历史风险模式 |
+| `agent_lessons` | Reflection 提取行为修正建议后 | 下次分析注入对应 Agent 的 system prompt |
+
+### Reflection 复盘闭环
+
+workflow 结束后在独立线程运行，不阻塞 SSE 响应。流程：
+
+1. 拉取实时价格（akshare，60s 进程内缓存）
+2. 与上次分析的建议和价格对比，计算区间涨跌幅
+3. 判断方向正确性（买入 >+3%，回避 <−3%，观望 ±5% 以内）
+4. 结果回写至 `predictions` 记录，行为修正建议存入 `agent_lessons`
+
+首次分析无历史基准时自动跳过，至少两次分析后闭环生效。
+
+---
+
 ## Agent 职责
 
 | Agent | 工具 | 输出 |
