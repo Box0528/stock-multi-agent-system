@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import re
 import json
 import logging
+import threading
 import chromadb
 from datetime import datetime
 from chromadb.utils import embedding_functions
@@ -16,14 +17,17 @@ DB_PATH  = os.path.join(BASE_DIR, "memory", "chroma_db")
 
 _client = None
 _ef     = None
+_client_lock = threading.Lock()
 
 def _get_client():
     global _client, _ef
     if _client is None:
-        _client = chromadb.PersistentClient(path=DB_PATH)
-        _ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="paraphrase-multilingual-MiniLM-L12-v2"
-        )
+        with _client_lock:
+            if _client is None:
+                _client = chromadb.PersistentClient(path=DB_PATH)
+                _ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+                    model_name="paraphrase-multilingual-MiniLM-L12-v2"
+                )
     return _client, _ef
 
 def _get_collection(name: str):

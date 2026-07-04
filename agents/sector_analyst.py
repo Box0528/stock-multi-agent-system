@@ -129,6 +129,7 @@ def run_sector_analyst(
         HumanMessage(content=query),
     ]
     receipts: list[dict] = []
+    tool_called = False
 
     for _ in range(12):
         response = retry_llm_call(llm_with_tools, messages)
@@ -142,6 +143,9 @@ def run_sector_analyst(
             )
 
         if not response.tool_calls:
+            if not tool_called:
+                messages.append(HumanMessage(content="请先调用工具获取板块数据，再输出分析报告。"))
+                continue
             raw_report = response.content
             confidence, details = parse_self_evaluation(raw_report)
             clean_report = strip_self_evaluation(raw_report)
@@ -154,6 +158,7 @@ def run_sector_analyst(
                 ungrounded_claims=grounding["ungrounded_claims"],
             )
 
+        tool_called = True
         for tool_call in response.tool_calls:
             tool_name = tool_call["name"]
             tool_args = tool_call["args"]

@@ -221,10 +221,11 @@ def save_reflection_to_memory(
         logger.info("复盘结论已存入 Memory")
 
         # 把本次复盘的结果（涨跌幅、是否判断正确）回写到上一次预测记录
+        # top_k=2：records[0] 是本次刚写入的预测，records[1] 才是需要被复盘的上次预测
         from memory.vector_store import update_prediction_outcome, get_prediction_history
-        records = get_prediction_history(stock_name, top_k=1)
-        if records:
-            update_prediction_outcome(stock_name, records[0]["date"], was_correct, price_change_pct)
+        records = get_prediction_history(stock_name, top_k=2)
+        if len(records) >= 2:
+            update_prediction_outcome(stock_name, records[1]["date"], was_correct, price_change_pct)
 
         # 解析行为修正建议并存入 agent_lessons
         lessons = _extract_agent_lessons(reflection_text)

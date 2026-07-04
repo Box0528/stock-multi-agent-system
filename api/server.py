@@ -101,7 +101,8 @@ def _event_to_sse(event: AgentEvent) -> str:
 
 async def research_stream(stock_code: str, stock_info: dict):
     queue: asyncio.Queue = asyncio.Queue()
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
+    stop_event = threading.Event()
 
     bus = EventBus(queue, loop)
     tracker = CostTracker()
@@ -179,17 +180,20 @@ async def research_stream(stock_code: str, stock_info: dict):
         "industry":   stock_info["industry"],
     })
 
-    while True:
-        try:
-            event: AgentEvent = await asyncio.wait_for(queue.get(), timeout=300)
-        except asyncio.TimeoutError:
-            yield make_sse("error", {"message": "分析超时，请重试"})
-            break
+    try:
+        while True:
+            try:
+                event: AgentEvent = await asyncio.wait_for(queue.get(), timeout=300)
+            except asyncio.TimeoutError:
+                yield make_sse("error", {"message": "分析超时，请重试"})
+                break
 
-        yield _event_to_sse(event)
+            yield _event_to_sse(event)
 
-        if event.event_type in ("done", "error"):
-            break
+            if event.event_type in ("done", "error"):
+                break
+    finally:
+        stop_event.set()
 
 
 def _run_reflection_async(result: dict, stock_name: str,
@@ -312,7 +316,7 @@ def _run_reflection_async(result: dict, stock_name: str,
 async def scan_stream():
     """模式一：主动扫描 SSE 流。"""
     queue: asyncio.Queue = asyncio.Queue()
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     bus = EventBus(queue, loop)
     tracker = CostTracker()
@@ -363,15 +367,18 @@ async def scan_stream():
 
     yield make_sse("ping", {"message": "连接成功，开始主动扫描..."})
 
-    while True:
-        try:
-            event: AgentEvent = await asyncio.wait_for(queue.get(), timeout=600)
-        except asyncio.TimeoutError:
-            yield make_sse("error", {"message": "扫描超时"})
-            break
-        yield _event_to_sse(event)
-        if event.event_type in ("done", "error"):
-            break
+    try:
+        while True:
+            try:
+                event: AgentEvent = await asyncio.wait_for(queue.get(), timeout=600)
+            except asyncio.TimeoutError:
+                yield make_sse("error", {"message": "扫描超时"})
+                break
+            yield _event_to_sse(event)
+            if event.event_type in ("done", "error"):
+                break
+    finally:
+        pass  # daemon 线程会随进程退出，queue 此后自然 GC
 
 
 @app.post("/api/scan", dependencies=[Depends(verify_access_key)])
@@ -401,13 +408,21 @@ async def research(request: Request, req: ResearchRequest):
     )
 
 
+def _validate_stock_code_param(stock_code: str) -> str:
+    import re as _re2
+    if not _re2.match(r'^(sh\.?|sz\.?|SH\.?|SZ\.?)?\d{6}(\.SH|\.SZ|\.sh|\.sz)?$', stock_code.strip()):
+        raise HTTPException(status_code=400, detail=f"无效的股票代码格式：{stock_code}")
+    return stock_code.strip()
+
+
 @app.get("/api/lookup/{stock_code}", dependencies=[Depends(verify_access_key)])
 async def lookup(stock_code: str):
-    return lookup_by_code(stock_code)
+    return lookup_by_code(_validate_stock_code_param(stock_code))
 
 
 @app.get("/api/kline/{stock_code}", dependencies=[Depends(verify_access_key)])
 async def kline(stock_code: str, days: int = 60):
+    stock_code = _validate_stock_code_param(stock_code)
     normalized = _normalize_stock_code(stock_code)
     file_path = os.path.join(DATA_DIR, f"{normalized}.csv")
     if not os.path.exists(file_path):

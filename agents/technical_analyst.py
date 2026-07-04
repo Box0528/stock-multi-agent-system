@@ -117,6 +117,7 @@ def run_technical_analyst(
         HumanMessage(content=user_query),
     ]
     receipts: list[dict] = []  # Tool Receipts：工具调用的"参数+原始返回"，用于事后溯源校验
+    tool_called = False
 
     for i in range(8):
         response = retry_llm_call(llm_with_tools, messages)
@@ -130,6 +131,10 @@ def run_technical_analyst(
             )
 
         if not response.tool_calls:
+            # 至少要调用一次工具，否则报告完全依赖模型记忆而非实时数据
+            if not tool_called:
+                messages.append(HumanMessage(content="请先调用工具获取实时数据，再输出分析报告。"))
+                continue
             raw_report = response.content
             confidence, details = parse_self_evaluation(raw_report)
             clean_report = strip_self_evaluation(raw_report)
@@ -142,6 +147,7 @@ def run_technical_analyst(
                 ungrounded_claims=grounding["ungrounded_claims"],
             )
 
+        tool_called = True
         for tool_call in response.tool_calls:
             tool_name = tool_call["name"]
             tool_args = tool_call["args"]

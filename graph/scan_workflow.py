@@ -136,7 +136,7 @@ def planner_select_node(state: ScanState, config: RunnableConfig) -> dict:
         bus.emit_progress("planner", "done", f"🎯 精选出 {len(selected)} 只重点标的")
     except json.JSONDecodeError:
         logger.error("精选结果 JSON 解析失败：%s", raw[:200])
-        bus.emit_progress("planner", "done", "🎯 精选完成（JSON解析异常，使用原始结果）")
+        bus.emit_progress("planner", "done", "⚠️ 精选结果解析失败，跳过深度分析")
         selected = []
 
     return {
@@ -164,8 +164,7 @@ def deep_analysis_node(state: ScanState, config: RunnableConfig) -> dict:
         f"📊 开始对 {len(selected)} 只精选股进行多智能体深度分析...")
 
     from graph.workflow import workflow
-    from core.event_bus import EventBus, ConsoleEventBus
-    import asyncio
+    from memory.extraction import extract_advice, extract_rating
 
     reports = []
     for i, stock in enumerate(selected):
@@ -173,8 +172,9 @@ def deep_analysis_node(state: ScanState, config: RunnableConfig) -> dict:
         name = stock.get("name", "")
         industry = stock.get("industry", "")
 
-        bus.emit_progress("supervisor", "running",
-            f"📊 [{i+1}/{len(selected)}] 正在分析 {name}({code})...")
+        # 通知前端切换到当前分析的股票
+        bus.emit("scan_stock_switch", "system", "running", "",
+                 metadata={"index": i + 1, "total": len(selected), "name": name, "code": code})
 
         try:
             initial_state = {
@@ -199,25 +199,30 @@ def deep_analysis_node(state: ScanState, config: RunnableConfig) -> dict:
                 "reasoning_traces":     "",
             }
 
-            # 复用模式二 workflow，但用同一个 tracker 累计成本
-            sub_bus = ConsoleEventBus()
-            sub_config = {"configurable": {"event_bus": sub_bus, "cost_tracker": tracker}}
+            # 传真实 bus，让 Agent 事件流向前端；tracker 累计整体成本
+            sub_config = {"configurable": {"event_bus": bus, "cost_tracker": tracker}}
             result = workflow.invoke(initial_state, config=sub_config)
+
+            final_report = result.get("final_report", "")
+            advice = extract_advice(final_report)
+            rating = extract_rating(final_report)
 
             reports.append({
                 "code": code,
                 "name": name,
                 "industry": industry,
                 "reason": stock.get("reason", ""),
-                "final_report": result.get("final_report", ""),
+                "final_report": final_report,
                 "technical_report": result.get("technical_report", ""),
                 "news_report": result.get("news_report", ""),
                 "sector_report": result.get("sector_report", ""),
                 "risk_report": result.get("risk_report", ""),
             })
 
-            bus.emit_progress("supervisor", "running",
-                f"📊 [{i+1}/{len(selected)}] {name} 分析完成 ✓")
+            # 通知前端该股票分析完成
+            bus.emit("scan_stock_done", "system", "done", "",
+                     metadata={"index": i + 1, "name": name, "code": code,
+                               "advice": advice, "rating": rating})
 
         except Exception as e:
             logger.error("深度分析失败 %s：%s", name, e)
@@ -227,6 +232,9 @@ def deep_analysis_node(state: ScanState, config: RunnableConfig) -> dict:
                 "final_report": f"分析失败：{e}",
                 "risk_report": "",
             })
+            bus.emit("scan_stock_done", "system", "done", "",
+                     metadata={"index": i + 1, "name": name, "code": code,
+                               "advice": "分析失败", "rating": ""})
 
     bus.emit_progress("supervisor", "done", f"📊 {len(selected)} 只股票深度分析全部完成")
 

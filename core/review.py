@@ -98,8 +98,10 @@ def _load_json(path: str, default):
 
 def _save_json(path: str, data) -> None:
     os.makedirs(META_DIR, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)  # 原子替换，避免写入中途崩溃导致文件损坏
 
 
 def load_pending() -> list[dict]:

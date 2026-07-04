@@ -10,6 +10,7 @@ import Sidebar from './components/Sidebar'
 import HistorySidebar from './components/HistorySidebar'
 import EmptyState from './components/EmptyState'
 import AgentStage from './components/AgentStage'
+import ScanStage from './components/ScanStage'
 import RatingCard from './components/RatingCard'
 import KlineChart from './components/KlineChart'
 import ReportPanel from './components/ReportPanel'
@@ -41,6 +42,10 @@ export default function App() {
   const [reflection, setReflection] = useState(null)
   const [showKline, setShowKline] = useState(true)
   const [activeHistoryId, setActiveHistoryId] = useState(null)
+  const [scanMode, setScanMode] = useState(false)
+  const [scanStocks, setScanStocks] = useState([])
+
+  const currentScanStockRef = useRef(null)
 
   const agentStarts = useRef({})
   const agentIntervals = useRef({})
@@ -97,6 +102,9 @@ export default function App() {
     setShowKline(true)
     setActiveTab('final')
     setActiveHistoryId(null)
+    setScanMode(false)
+    setScanStocks([])
+    currentScanStockRef.current = null
     finalReportRef.current = ''
     riskReportRef.current = ''
     allReportsRef.current = {}
@@ -241,15 +249,60 @@ export default function App() {
     }
   }, [])
 
+  // ── 辅助：向 scanStocks 中指定 code 的股票写 agent 状态
+  function updateScanStockAgent(code, agent, status, msg) {
+    if (!code) return
+    setScanStocks(prev => prev.map(s => {
+      if (s.code !== code) return s
+      const cur = s.agents[agent] || { status: 'idle', logs: [], elapsed: '--' }
+      const logs = msg ? [...cur.logs, { msg, type: 'ok' }] : cur.logs
+      return { ...s, agents: { ...s.agents, [agent]: { ...cur, status, logs } } }
+    }))
+  }
+
   // ── SSE event handler（scan）────────────────────────────
   const handleScanEvent = useCallback((type, data) => {
-    if (type === 'progress') {
+    if (type === 'scan_stock_switch') {
+      const { index, total, name, code } = data
+      currentScanStockRef.current = code
+      setScanStocks(prev => {
+        // 若还不在列表里则追加（首次出现）
+        const exists = prev.some(s => s.code === code)
+        const updated = prev.map(s =>
+          s.code === code ? { ...s, status: 'running' } : s
+        )
+        if (!exists) {
+          updated.push({ index, total, name, code, status: 'running', agents: {}, advice: '', rating: '' })
+        }
+        return updated
+      })
+      setStatusText(`[${index}/${total}] 正在分析 ${name}(${code})...`)
+
+    } else if (type === 'scan_stock_done') {
+      const { index, name, code, advice, rating } = data
+      currentScanStockRef.current = null
+      setScanStocks(prev => prev.map(s =>
+        s.code === code ? { ...s, status: 'done', advice, rating } : s
+      ))
+      setStatusText(`[${index}] ${name} 分析完成 — ${advice}`)
+
+    } else if (type === 'progress') {
       const { agent, status, message } = data
-      setAgentStatus(agent, status, message)
+      const code = currentScanStockRef.current
+      if (code) {
+        updateScanStockAgent(code, agent, status, message)
+      }
       if (message) setStatusText(message)
 
     } else if (type === 'tool_call') {
-      appendLog(data.agent, data.message, 'tool')
+      const code = currentScanStockRef.current
+      if (code) {
+        setScanStocks(prev => prev.map(s => {
+          if (s.code !== code) return s
+          const cur = s.agents[data.agent] || { status: 'idle', logs: [], elapsed: '--' }
+          return { ...s, agents: { ...s.agents, [data.agent]: { ...cur, logs: [...cur.logs, { msg: data.message, type: 'tool' }] } } }
+        }))
+      }
       setStats(prev => ({ ...prev, tools: prev.tools + 1 }))
 
     } else if (type === 'scan_result') {
@@ -322,6 +375,7 @@ export default function App() {
 
   async function startScan() {
     resetAll()
+    setScanMode(true)
     setStageLabel('全市场筛选中...')
     setPhase('running')
     setStatusState('running')
@@ -363,7 +417,11 @@ export default function App() {
         />
         <main className="main-panel">
           {phase === 'idle' && <EmptyState />}
-          {phase === 'running' && <AgentStage agents={agents} stageLabel={stageLabel} />}
+          {phase === 'running' && (
+            scanMode
+              ? <ScanStage stocks={scanStocks} stageLabel={stageLabel} />
+              : <AgentStage agents={agents} stageLabel={stageLabel} />
+          )}
           {phase === 'report' && (
             <>
               <RatingCard rating={rating} time={ratingTime} />

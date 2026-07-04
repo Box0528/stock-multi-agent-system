@@ -37,7 +37,7 @@ flowchart TD
 
 - **多智能体并行**：6 个专职 Agent（技术 / 新闻 / 板块 / 基金经理 / 风控 / 复盘）并发执行，LangGraph StateGraph 管理状态流转与错误恢复
 - **自主搜索规划**：News Analyst 自行生成搜索关键词组合，按时间维度分层检索，附严格时效约束（7 天 / 30 天分级降级）
-- **Tool Receipts 幻觉检测**：每次工具调用的原始返回被保留为收据，报告生成后确定性程序比对数字声明是否有据可查，不引入第二个 LLM（[arXiv:2603.10060](https://arxiv.org/pdf/2603.10060)）
+- **Tool Receipts 幻觉检测**：每次工具调用的原始返回被保留为收据，报告生成后确定性程序比对数字声明是否有据可查，全部三个分析师 Agent（Technical / News / Sector）已覆盖，不引入第二个 LLM（[arXiv:2603.10060](https://arxiv.org/pdf/2603.10060)）
 - **四层向量记忆**（ChromaDB）：预测追踪 / 板块轮动 / 风控历史 / Agent 教训，按真实交易日归档
 - **Reflection 闭环**：复盘引擎对比历史预测与实际走势，归因到具体 Agent，教训自动注入下次分析
 - **可观测性**：结构化 EventBus + SSE 实时推送每步执行状态；线程安全 CostTracker 追踪 Token 与工具消耗
@@ -99,10 +99,14 @@ docker compose up --build
 │   └── data_pipeline.py
 ├── data_downloader.py        # baostock 下载脚本（收编进仓库）
 ├── api/server.py             # FastAPI + SSE + 鉴权 / 限流
-├── frontend/
-│   ├── index.html
-│   ├── css/main.css
-│   └── js/
+├── frontend-react/               # React 18 + Vite 前端
+│   ├── src/
+│   │   ├── App.jsx
+│   │   ├── components/           # AgentStage / ScanStage / AgentCard 等
+│   │   ├── hooks/
+│   │   └── utils/
+│   └── dist/                     # 构建产物（Docker 内生成）
+├── frontend/                     # 旧版原生 HTML（已弃用）
 ├── config.py
 ├── Dockerfile / docker-compose.yml
 ├── .github/workflows/test.yml
@@ -123,7 +127,7 @@ docker compose up --build
 | 向量记忆 | ChromaDB + sentence-transformers |
 | 后端 | FastAPI + SSE + slowapi |
 | 数据源 | baostock / akshare / Tavily |
-| 前端 | 原生 HTML/CSS/JS（模块化）+ lightweight-charts |
+| 前端 | React 18 + Vite + lightweight-charts |
 | 测试 / CI | pytest + GitHub Actions |
 | 部署 | Docker + docker-compose |
 
@@ -131,9 +135,9 @@ docker compose up --build
 
 - [x] 双模式投研闭环（主动扫描 + 指定分析）
 - [x] 四层 Memory + Reflection 复盘引擎
-- [x] Tool Receipts 幻觉检测（Technical Analyst 试点）
+- [x] Tool Receipts 幻觉检测（全部三个分析师 Agent 覆盖）
 - [x] 分层测试体系 + CI / Docker 部署
-- [ ] Tool Receipts 覆盖全部分析师 Agent
+- [x] React 18 + Vite 前端，模式一扫描专属 ScanStage 进度视图
 - [ ] 以溯源分校准置信度，替代 LLM 自评
 - [ ] Supervisor 协商机制：信号矛盾时向分析师追问
 

@@ -2,6 +2,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
+import time
 import pandas as pd
 from datetime import datetime
 
@@ -68,16 +69,27 @@ def get_realtime_price(stock_name: str) -> dict:
     return _fetch_local(stock_name)
 
 
-def _fetch_akshare(stock_name: str) -> dict:
-    import akshare as ak
+_spot_cache: dict = {"df": None, "ts": 0.0}
+_SPOT_CACHE_TTL = 60  # 1分钟内复用同一份全市场行情，避免重复下载
 
+
+def _get_spot_df():
+    import akshare as ak
+    now = time.monotonic()
+    if _spot_cache["df"] is None or now - _spot_cache["ts"] > _SPOT_CACHE_TTL:
+        _spot_cache["df"] = ak.stock_zh_a_spot_em()
+        _spot_cache["ts"] = now
+    return _spot_cache["df"]
+
+
+def _fetch_akshare(stock_name: str) -> dict:
     ak_code = _code_for_akshare(stock_name)
     if not ak_code:
         raise ValueError(f"找不到股票代码：{stock_name}")
 
     is_trading, time_note = _is_trading_hours()
 
-    df     = ak.stock_zh_a_spot_em()
+    df     = _get_spot_df()
     code_6 = ak_code[-6:]
     row    = df[df["代码"] == code_6]
 

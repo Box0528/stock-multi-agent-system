@@ -7,7 +7,16 @@ from core.cache import get_cached, set_cached
 
 logger = logging.getLogger(__name__)
 
-client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+_client: TavilyClient | None = None
+
+def _get_client() -> TavilyClient:
+    global _client
+    if _client is None:
+        api_key = os.getenv("TAVILY_API_KEY")
+        if not api_key:
+            raise RuntimeError("TAVILY_API_KEY 未配置，请在 .env 中设置")
+        _client = TavilyClient(api_key=api_key)
+    return _client
 
 
 def get_date_context() -> dict:
@@ -44,7 +53,7 @@ def _search_with_cache(query: str, max_results: int, days: int, time_label: str)
         from_cache = True
     else:
         try:
-            results = client.search(
+            results = _get_client().search(
                 query=query,
                 max_results=max_results,
                 search_depth="advanced",

@@ -669,3 +669,58 @@ body { margin: 0; background: var(--gray-50); }
   margin-top: 4px;
 }
 .gate-btn:hover { background: #1d4ed8 }
+
+/* ── ScanStage ────────────────────────────────────────────────── */
+.scan-stock-list { display: flex; flex-direction: column; gap: 6px }
+
+.scan-stock-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 36px;
+  text-align: center;
+}
+
+.scan-stock-name { font-size: 13px; font-weight: 600; color: var(--gray-900) }
+.scan-stock-code { font-size: 12px; color: var(--gray-400) }
+.scan-stock-advice { font-size: 13px; font-weight: 700 }
+.scan-stock-rating { font-size: 13px; color: var(--gray-500) }
+
+.scan-stock-waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+}
+
+.scan-stock-done {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid var(--green);
+}
+
+.scan-stock-running {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid var(--blue);
+  box-shadow: 0 0 0 3px rgba(37,99,235,.06);
+}
+
+.scan-stock-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
