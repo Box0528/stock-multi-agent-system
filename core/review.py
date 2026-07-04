@@ -69,11 +69,17 @@ def advice_to_direction(advice: str) -> Direction:
 
 
 def direction_correct(direction: Direction, return_pct: float) -> tuple[bool, bool]:
-    """返回 (direction_correct, counted_in_stats)。neutral 不计入统计。"""
+    """返回 (direction_correct, counted_in_stats)。neutral 不计入统计。
+
+    阈值与 server.py reflection 保持一致：
+      bullish 正确：实际涨幅 > +3%
+      bearish 正确：实际跌幅 < -3%
+    排除 ±3% 以内的噪声波动，避免虚高准确率。
+    """
     if direction == "neutral":
         return False, False
-    correct = (direction == "bullish" and return_pct > 0) or \
-              (direction == "bearish" and return_pct < 0)
+    correct = (direction == "bullish" and return_pct > 3) or \
+              (direction == "bearish" and return_pct < -3)
     return correct, True
 
 

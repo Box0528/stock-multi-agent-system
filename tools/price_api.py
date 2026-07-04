@@ -1,8 +1,11 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import logging
 import pandas as pd
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR  = os.path.join(BASE_DIR, "local_stock_data")
@@ -60,7 +63,7 @@ def get_realtime_price(stock_name: str) -> dict:
         if result:
             return result
     except Exception as e:
-        print(f"[PriceAPI] akshare 失败：{e}，降级到本地缓存")
+        logger.warning("akshare 失败：%s，降级到本地缓存", e)
 
     return _fetch_local(stock_name)
 
@@ -90,7 +93,7 @@ def _fetch_akshare(stock_name: str) -> dict:
 
     # 交易时间内 → realtime；非交易时间 → last_close
     source = "realtime" if is_trading else "last_close"
-    print(f"[PriceAPI] ✓ {time_note}：{stock_name} {price:.2f}元 ({change_pct:+.2f}%)")
+    logger.info("✓ %s：%s %.2f元 (%+.2f%%)", time_note, stock_name, price, change_pct)
 
     return {
         "price":      price,
@@ -125,7 +128,7 @@ def _fetch_local(stock_name: str) -> dict:
         change_pct = float(last.get("pctChg", 0) or 0)
         date_str   = last["date"].strftime("%Y-%m-%d")
 
-        print(f"[PriceAPI] ⚠ 本地缓存：{stock_name} {price:.2f}元 ({date_str})")
+        logger.info("⚠ 本地缓存：%s %.2f元 (%s)", stock_name, price, date_str)
         return {
             "price":      price,
             "change_pct": change_pct,
@@ -139,7 +142,7 @@ def _fetch_local(stock_name: str) -> dict:
 
 
 def _empty(stock_name: str, error: str) -> dict:
-    print(f"[PriceAPI] ✗ 无法获取价格：{stock_name} — {error}")
+    logger.warning("✗ 无法获取价格：%s — %s", stock_name, error)
     return {
         "price":      0.0,
         "change_pct": 0.0,

@@ -25,8 +25,8 @@ def _parse_date(date_str: str) -> datetime | None:
         return None
     for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%Y/%m/%d"]:
         try:
-            return datetime.strptime(date_str[:len(fmt.replace("%", "X"))], fmt)
-        except (ValueError, IndexError):
+            return datetime.strptime(date_str[:19], fmt)
+        except (ValueError, TypeError):
             continue
     try:
         from dateutil import parser as dateutil_parser

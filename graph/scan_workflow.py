@@ -20,6 +20,7 @@ from langgraph.graph.message import add_messages
 
 from core.event_bus import get_event_bus
 from core.cost_tracker import get_cost_tracker
+from core.resilience import retry_llm_call
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,7 @@ def planner_select_node(state: ScanState, config: RunnableConfig) -> dict:
   ...
 ]
 """
-    response = llm.invoke([
+    response = retry_llm_call(llm, [
         SystemMessage(content="你是投研总监，严格输出 JSON，不要多余文字。"),
         HumanMessage(content=prompt),
     ])
@@ -286,7 +287,7 @@ def final_ranking_node(state: ScanState, config: RunnableConfig) -> dict:
 （整体市场风险和个股风险提醒）
 """
 
-    response = llm.invoke([
+    response = retry_llm_call(llm, [
         SystemMessage(content="你是资深投研总监，输出今日投研排名报告。"),
         HumanMessage(content=prompt),
     ])
