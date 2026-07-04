@@ -9,7 +9,7 @@ from core.event_bus import ConsoleEventBus
 from core.cost_tracker import CostTracker
 from core.cognitive import parse_self_evaluation, strip_self_evaluation, SELF_EVAL_SUFFIX, AgentOutput
 from core.grounding import check_grounding
-from core.resilience import retry_llm_call
+from core.resilience import retry_llm_call, retry_tool_call
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +149,7 @@ def run_technical_analyst(
 
             tool_fn = TOOL_MAP.get(tool_name)
             if tool_fn:
-                result = tool_fn.invoke(tool_args)
+                result = retry_tool_call(tool_fn, tool_args, tool_name)
                 if tracker:
                     tracker.record_tool_call()
             else:

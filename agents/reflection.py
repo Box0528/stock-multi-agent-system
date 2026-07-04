@@ -7,6 +7,7 @@ from datetime import datetime
 from langchain_core.messages import HumanMessage, SystemMessage
 from config import get_llm
 from core.cost_tracker import CostTracker
+from core.resilience import retry_llm_call
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +134,7 @@ def run_reflection(
         HumanMessage(content=user_content),
     ]
 
-    response = llm.invoke(messages)
+    response = retry_llm_call(llm, messages)
 
     if tracker:
         usage = getattr(response, "usage_metadata", None) or {}
@@ -174,10 +175,23 @@ def _calc_accuracy(history_records: list) -> str:
     if len(history_records) < 2:
         return "历史记录不足，暂无统计数据"
 
-    total = len(history_records) - 1
-    lines = [f"共有 {total} 次历史预测记录："]
-    for r in history_records[1:]:
-        lines.append(f"- {r['date']}：{r['advice']}  风险:{r['risk_level']}")
+    past = history_records[1:]
+    lines = [f"共有 {len(past)} 次历史预测记录："]
+
+    reviewed = [r for r in past if "outcome_correct" in r]
+    if reviewed:
+        correct = sum(1 for r in reviewed if str(r["outcome_correct"]) == "True")
+        lines.insert(1, f"已复盘 {len(reviewed)} 次，判断正确 {correct} 次（准确率 {correct/len(reviewed):.0%}）\n")
+
+    for r in past:
+        outcome_tag = ""
+        if "outcome_correct" in r:
+            outcome_tag = " ✓" if str(r["outcome_correct"]) == "True" else " ✗"
+        chg_note = ""
+        if "price_change_pct" in r:
+            chg_note = f"  实际涨跌：{float(r['price_change_pct']):+.1f}%"
+        lines.append(f"- {r['date']}：{r['advice']}  风险:{r['risk_level']}{outcome_tag}{chg_note}")
+
     return "\n".join(lines)
 
 
@@ -186,6 +200,7 @@ def save_reflection_to_memory(
     reflection_text: str,
     was_correct: bool,
     industry: str = "",
+    price_change_pct: float = 0.0,
 ) -> None:
     try:
         from memory.vector_store import _get_collection, save_agent_lessons
@@ -204,6 +219,12 @@ def save_reflection_to_memory(
             ids=[doc_id]
         )
         logger.info("复盘结论已存入 Memory")
+
+        # 把本次复盘的结果（涨跌幅、是否判断正确）回写到上一次预测记录
+        from memory.vector_store import update_prediction_outcome, get_prediction_history
+        records = get_prediction_history(stock_name, top_k=1)
+        if records:
+            update_prediction_outcome(stock_name, records[0]["date"], was_correct, price_change_pct)
 
         # 解析行为修正建议并存入 agent_lessons
         lessons = _extract_agent_lessons(reflection_text)

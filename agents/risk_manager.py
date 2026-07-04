@@ -7,7 +7,7 @@ from config import get_llm
 from tools.stock_data import get_stock_detail, get_volume_analysis
 from core.cost_tracker import CostTracker
 from core.cognitive import parse_self_evaluation, strip_self_evaluation, SELF_EVAL_SUFFIX, AgentOutput
-from core.resilience import retry_llm_call
+from core.resilience import retry_llm_call, retry_tool_call
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +132,7 @@ def run_risk_manager(
 
 ---
 ## 技术分析原始数据
-{technical_report[:1500]}
+{technical_report}
 {history_block}
 """
     from core.event_bus import ConsoleEventBus
@@ -174,7 +174,7 @@ def run_risk_manager(
 
             tool_fn = TOOL_MAP.get(tool_name)
             if tool_fn:
-                result = tool_fn.invoke(tool_args)
+                result = retry_tool_call(tool_fn, tool_args, tool_name)
                 if tracker:
                     tracker.record_tool_call()
             else:

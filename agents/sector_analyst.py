@@ -10,7 +10,8 @@ from tools.search import search_stock_news
 from core.event_bus import ConsoleEventBus
 from core.cost_tracker import CostTracker
 from core.cognitive import parse_self_evaluation, strip_self_evaluation, SELF_EVAL_SUFFIX, AgentOutput
-from core.resilience import retry_llm_call
+from core.resilience import retry_llm_call, retry_tool_call
+from core.grounding import check_grounding
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +128,7 @@ def run_sector_analyst(
         SystemMessage(content=system_content),
         HumanMessage(content=query),
     ]
+    receipts: list[dict] = []
 
     for _ in range(12):
         response = retry_llm_call(llm_with_tools, messages)
@@ -143,10 +145,13 @@ def run_sector_analyst(
             raw_report = response.content
             confidence, details = parse_self_evaluation(raw_report)
             clean_report = strip_self_evaluation(raw_report)
+            grounding = check_grounding(clean_report, receipts)
             return AgentOutput(
                 report=clean_report,
                 confidence=confidence,
                 confidence_details=details,
+                grounding_score=grounding["grounding_score"],
+                ungrounded_claims=grounding["ungrounded_claims"],
             )
 
         for tool_call in response.tool_calls:
@@ -156,7 +161,8 @@ def run_sector_analyst(
 
             tool_fn = TOOL_MAP.get(tool_name)
             if tool_fn:
-                result = tool_fn.invoke(tool_args)
+                result = retry_tool_call(tool_fn, tool_args, tool_name)
+                receipts.append({"tool_name": tool_name, "args": tool_args, "result": str(result)})
                 if tracker:
                     tracker.record_tool_call()
                     if tool_name == "search_stock_news":

@@ -260,6 +260,7 @@ def _run_reflection_async(result: dict, stock_name: str,
             )
 
             was_correct = False
+            chg = 0.0
             if last_record.get("price_info"):
                 m = re.search(r'([\d.]+)\s*元', last_record.get("price_info", ""))
                 if m:
@@ -274,7 +275,11 @@ def _run_reflection_async(result: dict, stock_name: str,
                     )
 
             if reflection_text:
-                save_reflection_to_memory(stock_name, reflection_text, was_correct)
+                save_reflection_to_memory(
+                    stock_name, reflection_text, was_correct,
+                    industry=result.get("real_industry", ""),
+                    price_change_pct=chg,
+                )
                 _push(AgentEvent(
                     event_type="reflection", agent="system", status="done",
                     message="", metadata={"content": reflection_text, "was_correct": was_correct},

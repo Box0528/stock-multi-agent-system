@@ -271,8 +271,9 @@ def save_all_memory(
             sector_metrics["up_ratio"], sector_metrics["fund_trend"], sector_metrics["avg_pct"], trade_date,
         )
 
-    # 第三层
-    risk_signals   = re.findall(r'⚠️警告[^\|]*\|[^\|]*\|([^\n|]+)', risk_report)
+    # 第三层：从风控表格里提取触发⚠️的风险项名称
+    # 匹配格式：| 换手率风险 | 警示 ⚠️ | 具体数值 |
+    risk_signals   = re.findall(r'\|\s*([^|]+?)\s*\|\s*[^|]*⚠️[^|]*\|', risk_report)
     risk_conclusion = ''
     m = re.search(r'风控结论[^\n]*\n([^\n]+)', risk_report)
     if m:
@@ -383,6 +384,29 @@ def load_agent_lessons(stock_name: str, industry: str) -> dict[str, str]:
     except Exception as e:
         logger.error("加载 agent 教训失败：%s", e)
         return {}
+
+
+def update_prediction_outcome(
+    stock_name: str,
+    last_date: str,
+    was_correct: bool,
+    price_change_pct: float,
+) -> None:
+    """复盘后将实际结果回写到对应预测记录。"""
+    col = _get_collection("predictions")
+    doc_id = f"{stock_name}_{last_date.replace('-', '')}"
+    try:
+        existing = col.get(ids=[doc_id])
+        if not existing["ids"]:
+            logger.warning("update_prediction_outcome：找不到记录 %s", doc_id)
+            return
+        meta = existing["metadatas"][0]
+        meta["outcome_correct"] = str(was_correct)
+        meta["price_change_pct"] = round(price_change_pct, 2)
+        col.update(ids=[doc_id], metadatas=[meta])
+        logger.info("预测结果已回写：%s was_correct=%s chg=%.2f%%", doc_id, was_correct, price_change_pct)
+    except Exception as e:
+        logger.error("回写预测结果失败：%s", e)
 
 
 if __name__ == "__main__":

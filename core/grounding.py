@@ -15,8 +15,13 @@ import re
 from dataclasses import dataclass
 
 
-# 匹配带至少一位小数的数字，可选紧跟单位（元/%/亿/万/股/只/分）
-_NUMBER_PATTERN = re.compile(r'(\d+\.\d+)\s*(元|%|亿|万|股|只|分)?')
+# 两种模式：① 任意数字（含整数）+ 金融单位；② 小数点数字（无单位也捕获）
+# 整数不带单位不捕获，避免把年份、序号等无关数字误判为财务声明
+_NUMBER_PATTERN = re.compile(
+    r'(\d+(?:\.\d+)?)\s*(元|%|亿|万|股|只|分|倍|点)'  # 数字 + 金融单位
+    r'|'
+    r'(\d+\.\d+)'                                      # 小数，无单位
+)
 
 
 @dataclass
@@ -27,10 +32,13 @@ class NumericClaim:
 
 
 def extract_numeric_claims(report_text: str) -> list[NumericClaim]:
-    """从报告文本里抓取所有带小数的数字声明。"""
+    """从报告文本里抓取数字声明（整数+单位 或 小数）。"""
     claims = []
     for m in _NUMBER_PATTERN.finditer(report_text):
-        value, unit = m.group(1), m.group(2) or ""
+        if m.group(1) is not None:        # 匹配到 数字+单位 模式
+            value, unit = m.group(1), m.group(2) or ""
+        else:                              # 匹配到 纯小数 模式
+            value, unit = m.group(3), ""
         start = max(0, m.start() - 10)
         end = min(len(report_text), m.end() + 5)
         context = report_text[start:end].replace("\n", " ").strip()
