@@ -17,6 +17,18 @@ export default function KlineChart({ stockCode }) {
 
     let chart = null
 
+    // Register wheel forwarder BEFORE createChart so our listener fires first.
+    // LightweightCharts calls preventDefault() which blocks native scroll;
+    // we manually forward deltaY to the scroll container so both work.
+    const mainPanel = container.closest('.main-panel')
+    const onWheel = (e) => {
+      if (mainPanel) {
+        const delta = e.deltaMode === 1 ? e.deltaY * 20 : e.deltaMode === 2 ? e.deltaY * 300 : e.deltaY
+        mainPanel.scrollTop += delta
+      }
+    }
+    container.addEventListener('wheel', onWheel, { passive: true })
+
     apiFetch(`/api/kline/${stockCode}`)
       .then(r => r.ok ? r.json() : Promise.reject('无K线数据'))
       .then(data => {
@@ -54,13 +66,6 @@ export default function KlineChart({ stockCode }) {
 
         chart.timeScale().fitContent()
 
-        // LightweightCharts calls preventDefault() on wheel events which blocks
-        // the parent panel from scrolling. Forward deltaY manually so both
-        // chart zoom and page scroll work simultaneously.
-        const mainPanel = container.closest('.main-panel')
-        const onWheel = (e) => { if (mainPanel) mainPanel.scrollTop += e.deltaY }
-        container.addEventListener('wheel', onWheel, { passive: true })
-
         // Tooltip
         const byTime = Object.fromEntries(candles.map(c => [c.time, c]))
         let tip = document.createElement('div')
@@ -89,7 +94,10 @@ export default function KlineChart({ stockCode }) {
       })
       .catch(() => { if (container) container.innerHTML = '<div class="chart-empty">暂无K线数据</div>' })
 
-    return () => { if (chart) chart.remove() }
+    return () => {
+      container.removeEventListener('wheel', onWheel)
+      if (chart) chart.remove()
+    }
   }, [stockCode])
 
   return (

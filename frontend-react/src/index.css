@@ -457,6 +457,7 @@ body { margin: 0; background: var(--gray-50); }
 
 /* ── Rating card ──────────────────────────────────────────────── */
 .rating-card {
+  flex-shrink: 0;
   background: #fff;
   border: 1px solid var(--gray-200);
   border-radius: 10px;
@@ -500,6 +501,7 @@ body { margin: 0; background: var(--gray-50); }
   border: 1px solid var(--gray-200);
   border-radius: 10px;
   padding: 14px;
+  flex-shrink: 0;
 }
 .chart-title { font-size: 12px; font-weight: 600; color: var(--gray-500); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.3px }
 .chart-container { width: 100%; height: 260px }
@@ -529,6 +531,7 @@ body { margin: 0; background: var(--gray-50); }
   border: 1px solid var(--gray-200);
   border-radius: 10px;
   overflow: hidden;
+  flex-shrink: 0;
 }
 .tab-nav {
   display: flex;
@@ -605,7 +608,12 @@ body { margin: 0; background: var(--gray-50); }
   padding: 8px 0 0;
   font-size: 12px;
   color: var(--gray-500);
-  margin-top: auto;
+  position: sticky;
+  bottom: 0;
+  background: var(--gray-50);
+  z-index: 10;
+  margin-top: 8px;
+  flex-shrink: 0;
 }
 .sdot {
   width: 7px; height: 7px; border-radius: 50%; background: var(--gray-300); flex-shrink: 0
