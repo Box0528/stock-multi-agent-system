@@ -103,9 +103,11 @@ export default function App() {
   }
 
   function setAgentStatus(agent, status, msg) {
+    if (!AGENTS.includes(agent)) return  // ignore system/unknown agents
     setAgents(prev => {
-      const logs = msg ? [...prev[agent].logs, { msg, type: 'ok' }] : prev[agent].logs
-      return { ...prev, [agent]: { ...prev[agent], status, logs } }
+      const cur = prev[agent] || { status: 'idle', logs: [], elapsed: '--' }
+      const logs = msg ? [...cur.logs, { msg, type: 'ok' }] : cur.logs
+      return { ...prev, [agent]: { ...cur, status, logs } }
     })
     if (status === 'running' && !agentIntervals.current[agent]) startAgentTimer(agent)
     if (status === 'done') {
