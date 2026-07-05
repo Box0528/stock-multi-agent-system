@@ -4,7 +4,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-A 股投研多智能体系统。6 个专职 Agent 通过 LangGraph StateGraph 编排，以 SSE 流式接口向 React 前端推送实时执行状态，支持全市场扫描与单股深度分析两种模式。
+A 股股票多智能体系统。6 个专职 Agent 通过 LangGraph StateGraph 编排，以 SSE 流式接口向 React 前端推送实时执行状态，支持全市场扫描与单股深度分析两种模式。
 
 ![界面截图](docs/项目展示图.png)
 
