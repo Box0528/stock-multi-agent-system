@@ -33,8 +33,9 @@ cp .env.example .env        # Linux/Mac
 # 必填：DEEPSEEK_API_KEY、TAVILY_API_KEY
 # 可选：ACCESS_KEY（公网部署鉴权）、CORS_ORIGINS
 
-# 3. 下载股票本地数据（baostock，约 5-10 分钟）
+# 3. 首次运行：手动下载股票本地数据（baostock，约 5-10 分钟）
 python scripts/scheduled_refresh.py
+# 后续数据每日 08:00 自动更新（需在服务器配置 crontab）
 
 # 4. 启动后端
 uvicorn api.server:app --host 0.0.0.0 --port 8000
