@@ -164,12 +164,6 @@ flowchart TD
 
 ---
 
-## Contributing
-
-欢迎提交 Issue 或 Pull Request。如有功能建议或 bug 反馈，请在 Issues 中描述复现步骤与预期行为。
-
----
-
 ## License
 
 MIT © [Box0528](https://github.com/Box0528)
